@@ -1,5 +1,10 @@
+import os
 import shutil
 import subprocess
+
+
+def _clean_env() -> dict:
+    return {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}
 
 
 def preflight(workspace: str) -> str:
@@ -12,6 +17,7 @@ def preflight(workspace: str) -> str:
         capture_output=True,
         text=True,
         cwd=workspace,
+        env=_clean_env(),
     )
     if import_check.returncode == 0:
         lines.append("import check: ok")
@@ -29,11 +35,11 @@ def preflight(workspace: str) -> str:
 
     if shutil.which("pytest"):
         pytest = subprocess.run(
-            ["uv", "run", "pytest", "-q"], capture_output=True, text=True, cwd=workspace
+            ["uv", "run", "pytest", "-q"], capture_output=True, text=True, cwd=workspace,
+            env=_clean_env(),
         )
-        lines.append(
-            f"pytest: {pytest.stdout.strip().splitlines()[-1] if pytest.stdout.strip() else 'no tests found'}"
-        )
+        summary = pytest.stdout.strip().splitlines()[-1] if pytest.stdout.strip() else "no tests found"
+        lines.append(f"pytest: {summary}")
         if pytest.returncode != 0:
             ok = False
     else:

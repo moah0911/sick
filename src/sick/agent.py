@@ -190,10 +190,8 @@ class SickAgent(InteractiveAgent):
     def _call(self, tool: str, **kwargs: Any) -> Any:
         start = time.monotonic()
         result = self._tools[tool].execute(**kwargs)
-        ok = not (
-            isinstance(result, str)
-            and result.startswith(("Error", "[error", "[timed out", "[exit code"))
-        )
+        head = result.strip()[:12] if isinstance(result, str) else ""
+        ok = not head.startswith(("Error", "[error", "[timed out", "[exit code"))
         self.audit.record(tool, ok=ok, duration_ms=round((time.monotonic() - start) * 1000), **kwargs)
         self._tool_counts[tool] = self._tool_counts.get(tool, 0) + 1
         return result
