@@ -13,6 +13,11 @@ wheels/
 .pytest_cache/
 .sick/
 
+# Environment
+.env
+.env.*
+!.env.example
+
 # IDE
 .vscode/
 .idea/

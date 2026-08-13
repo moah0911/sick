@@ -22,6 +22,11 @@ dependencies = [
     "textual>=8.2.8",
 ]
 
+[project.urls]
+Homepage = "https://github.com/your-org/sick"
+Repository = "https://github.com/your-org/sick"
+Issues = "https://github.com/your-org/sick/issues"
+
 [project.optional-dependencies]
 pdf = ["docling>=1.0"]
 
