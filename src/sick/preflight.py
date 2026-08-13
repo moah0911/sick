@@ -4,7 +4,7 @@ import subprocess
 
 
 def _clean_env() -> dict:
-    return {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}
+    return {k: v for k, v in os.environ.items() if k not in ("PYTHONPATH", "VIRTUAL_ENV")}
 
 
 def preflight(workspace: str) -> str:
