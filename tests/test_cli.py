@@ -19,7 +19,8 @@ def test_load_config_malformed_ignored(tmp_path):
 
 
 def test_cli_help_shows(monkeypatch):
-    import subprocess, sys
+    import subprocess
+    import sys
 
     r = subprocess.run([sys.executable, "-m", "sick.cli", "--help"], capture_output=True, text=True, cwd="/home/mahtwog/sick")
     assert "usage" in r.stdout.lower() or "sick" in r.stdout.lower()

@@ -1,7 +1,6 @@
 """Tests for providers: detection, validation, prefix."""
-import os
 
-from sick.providers import Anthropic, NVIDIA, OpenAICompatible, detect
+from sick.providers import NVIDIA, Anthropic, OpenAICompatible, detect
 
 
 def test_detect_nvidia_priority(monkeypatch):
@@ -31,19 +30,17 @@ def test_detect_model_prefix_infers_provider(monkeypatch):
 
 
 def test_detect_raises_when_no_keys(monkeypatch):
+    import pytest
+
     for k in ("NVIDIA_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "SICK_MODEL", "SICK_PROVIDER"):
         monkeypatch.delenv(k, raising=False)
-    try:
+    with pytest.raises(ValueError, match="No LLM provider"):
         detect()
-        assert False, "expected ValueError"
-    except ValueError as e:
-        assert "No LLM provider" in str(e)
 
 
 def test_create_llm_validates_missing_key(monkeypatch):
+    import pytest
+
     monkeypatch.delenv("NVIDIA_API_KEY", raising=False)
-    try:
+    with pytest.raises(ValueError):
         NVIDIA().create_llm()
-        assert False
-    except ValueError:
-        pass

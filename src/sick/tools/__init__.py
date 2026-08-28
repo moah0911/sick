@@ -1,9 +1,9 @@
 from sick.tools.base import Tool
-from sick.tools.files import ReadFile, WriteFile, EditFile
 from sick.tools.exec import Bash
-from sick.tools.search import Grep, Glob
+from sick.tools.files import EditFile, ReadFile, WriteFile
 from sick.tools.pdf import ParsePdf
 from sick.tools.research import CodeResearch
+from sick.tools.search import Glob, Grep
 from sick.tools.self import SelfRead, SelfWrite
 
 __all__ = [

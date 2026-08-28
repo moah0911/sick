@@ -2,7 +2,6 @@ from pathlib import Path
 
 from sick.tools.files import ReadFile, WriteFile
 
-
 SOURCE_ROOT = Path(__file__).resolve().parents[1]
 
 

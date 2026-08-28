@@ -2,7 +2,6 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any
 
-
 EXCLUDED_DIRS = {"node_modules", "dist", "build", "__pycache__", ".sick", ".venv", ".git", ".pytest_cache", "vendor"}
 
 

@@ -4,7 +4,7 @@ import os
 import sys
 from pathlib import Path
 
-from nooa import set_default_strategy, CodeActStrategy
+from nooa import CodeActStrategy, set_default_strategy
 from nooa.config import CodeActConfig
 
 from sick import SickAgent, detect

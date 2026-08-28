@@ -18,7 +18,7 @@ class TurnHost:
     Event subscriptions feed busy state to the chat.
     """
 
-    def __init__(self, agent: "SickAgent", chat: "ChatView") -> None:
+    def __init__(self, agent: SickAgent, chat: ChatView) -> None:
         self.agent = agent
         self.chat = chat
         self.busy = False

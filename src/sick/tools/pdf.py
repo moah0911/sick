@@ -3,7 +3,6 @@ import re
 
 from sick.tools.base import WorkspaceTool
 
-
 _PAGE_RANGE = re.compile(r"(\d+)(?:\s*-\s*(\d+))?$")
 
 

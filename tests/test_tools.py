@@ -4,9 +4,9 @@ import tempfile
 from pathlib import Path
 from types import ModuleType
 
-from sick.tools.files import ReadFile, WriteFile, EditFile, MAX_READ_BYTES
 from sick.tools.exec import Bash
-from sick.tools.search import Grep, Glob
+from sick.tools.files import MAX_READ_BYTES, EditFile, ReadFile, WriteFile
+from sick.tools.search import Glob, Grep
 
 
 def test_read_file():
@@ -190,7 +190,7 @@ def test_remotion_skill_default_in_agent_context(monkeypatch):
     monkeypatch.setattr(agent_module, "_get_remotion_prompt", lambda: "## remotion\nfake skill body")
     agent = SickAgent()
     assert agent.context["remotion"] == "## remotion\nfake skill body"
-    assert getattr(agent, "remotion") is not None
+    assert agent.remotion is not None
 
 
 def test_remotion_skill_loader_combines_installed_skills(tmp_path):
@@ -220,7 +220,7 @@ def test_sdlc_skill_default_in_agent_context(monkeypatch):
     monkeypatch.setattr(agent_module, "SDLC_PROMPT", "## sdlc\nfake sdlc body")
     agent = SickAgent()
     assert agent.context["sdlc"] == "## sdlc\nfake sdlc body"
-    assert getattr(agent, "sdlc") is not None
+    assert agent.sdlc is not None
 
 
 def test_parse_pdf_unavailable():
@@ -266,6 +266,7 @@ def test_load_config_defaults_and_bad_toml(tmp_path):
 
 def test_git_checkpoint_and_restore(tmp_path, monkeypatch):
     import subprocess
+
     from sick.tools.git import Checkpoint, Restore
 
     monkeypatch.setenv("GIT_AUTHOR_NAME", "t")
@@ -323,7 +324,7 @@ def test_fetch_url_rejects_non_http():
 
 
 def test_fetch_url_truncates_oversize(monkeypatch):
-    from sick.tools.web import FetchUrl, MAX_URL_BYTES
+    from sick.tools.web import MAX_URL_BYTES, FetchUrl
 
     class FakeResp:
         def read(self, n):
@@ -342,6 +343,7 @@ def test_fetch_url_truncates_oversize(monkeypatch):
 
 def test_bash_sandbox_requires_bwrap(monkeypatch, tmp_path):
     import shutil
+
     from sick.tools.exec import Bash
 
     monkeypatch.setattr(shutil, "which", lambda *a, **k: None)

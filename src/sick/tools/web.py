@@ -5,7 +5,6 @@ import urllib.request
 
 from sick.tools.base import Tool
 
-
 MAX_URL_BYTES = 100_000
 URL_TIMEOUT = 10
 

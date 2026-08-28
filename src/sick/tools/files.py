@@ -4,7 +4,6 @@ from tempfile import NamedTemporaryFile
 
 from sick.tools.base import WorkspaceTool
 
-
 MAX_READ_BYTES = 500_000
 
 

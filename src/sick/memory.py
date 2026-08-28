@@ -1,9 +1,8 @@
 import json
 import os
 import time
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from pathlib import Path
-
 
 MEMORY_DIR = Path(os.environ.get("SICK_MEMORY_DIR", Path.home() / ".sick"))
 MEMORY_PATH = MEMORY_DIR / "memory.jsonl"

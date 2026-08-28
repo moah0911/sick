@@ -2,7 +2,6 @@ import subprocess
 
 from sick.tools.base import WorkspaceTool
 
-
 CHECKPOINT_BRANCH = "sick-checkpoints"
 
 

@@ -5,7 +5,6 @@ from pathlib import Path
 
 from sick.tools.base import WorkspaceTool
 
-
 MAX_TIMEOUT_SECONDS = 300
 MAX_OUTPUT_CHARS = 20_000
 

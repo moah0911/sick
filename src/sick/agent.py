@@ -3,7 +3,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from nooa import Agent, Skill, hidden, spec
+from nooa import Skill, hidden, spec
 from nooa.interactive import InteractiveAgent, RespondReason, RespondResult
 
 from sick.audit import AuditLog
@@ -11,14 +11,13 @@ from sick.config import load_config
 from sick.memory import Experience, ExperienceMemory
 from sick.tools.base import Tool
 from sick.tools.exec import Bash
-from sick.tools.files import ReadFile, WriteFile, EditFile
-from sick.tools.git import Checkpoint, Restore, ListCheckpoints
+from sick.tools.files import EditFile, ReadFile, WriteFile
+from sick.tools.git import Checkpoint, ListCheckpoints, Restore
 from sick.tools.pdf import ParsePdf
 from sick.tools.research import CodeResearch
-from sick.tools.search import Grep, Glob
+from sick.tools.search import Glob, Grep
 from sick.tools.self import SelfRead, SelfWrite
 from sick.tools.web import FetchUrl
-
 
 PONYTAIL_PROMPT = """## ponytail (always active)
 - Shortest correct solution. No over-engineering.

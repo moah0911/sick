@@ -1,6 +1,4 @@
 """Security tests: workspace confinement, SSRF, audit redaction."""
-import tempfile
-from pathlib import Path
 
 from sick.agent import SickAgent
 from sick.tools.web import FetchUrl
@@ -74,7 +72,7 @@ def test_tools_excluded_union(tmp_path):
 
 
 def test_memory_survives_corrupt_line(tmp_path):
-    from sick.memory import Experience, ExperienceMemory
+    from sick.memory import ExperienceMemory
 
     p = tmp_path / "mem.jsonl"
     p.write_text('{"task":"ok","outcome":"success","pattern":"p","tools":[],"timestamp":1}\n')

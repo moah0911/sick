@@ -13,7 +13,7 @@ class SlashCommand:
     aliases: list[str] = []
     hint: str = ""
 
-    async def run(self, app: "SickApp", args: str) -> str | None:
+    async def run(self, app: SickApp, args: str) -> str | None:
         return None
 
 
@@ -21,7 +21,7 @@ class HelpCommand(SlashCommand):
     name = "help"
     hint = "show this help"
 
-    async def run(self, app: "SickApp", args: str) -> str | None:
+    async def run(self, app: SickApp, args: str) -> str | None:
         lines = ["## commands"]
         for cmd in app.commands.canonical:
             names = " ".join([f"/{cmd.name}"] + [f"/{a}" for a in cmd.aliases])
@@ -34,7 +34,7 @@ class ClearCommand(SlashCommand):
     aliases = ["new"]
     hint = "clear the conversation"
 
-    async def run(self, app: "SickApp", args: str) -> str | None:
+    async def run(self, app: SickApp, args: str) -> str | None:
         app.chat_view.clear()
         app.agent.context["user_request"] = ""
         return "conversation cleared"
@@ -45,7 +45,7 @@ class ExitCommand(SlashCommand):
     aliases = ["quit", "q"]
     hint = "quit sick"
 
-    async def run(self, app: "SickApp", args: str) -> str | None:
+    async def run(self, app: SickApp, args: str) -> str | None:
         app.exit()
         return None
 
@@ -54,7 +54,7 @@ class ModelsCommand(SlashCommand):
     name = "models"
     hint = "show the active model/provider"
 
-    async def run(self, app: "SickApp", args: str) -> str | None:
+    async def run(self, app: SickApp, args: str) -> str | None:
         # try provider model_id first, then llm internals
         try:
             from sick.providers import detect
@@ -72,7 +72,7 @@ class AuditCommand(SlashCommand):
     name = "audit"
     hint = "show the last N tool calls (/audit [n])"
 
-    async def run(self, app: "SickApp", args: str) -> str | None:
+    async def run(self, app: SickApp, args: str) -> str | None:
         try:
             n = int(args) if args.strip() else 10
         except ValueError:
@@ -95,7 +95,7 @@ class StatsCommand(SlashCommand):
     name = "stats"
     hint = "show turn and tool-call counts for this session"
 
-    async def run(self, app: "SickApp", args: str) -> str | None:
+    async def run(self, app: SickApp, args: str) -> str | None:
         counts = app.agent._tool_counts
         lines = [f"turns: {app.agent.turns}"]
         if counts:
@@ -112,7 +112,7 @@ class PlanCommand(SlashCommand):
     name = "plan"
     hint = "ask the agent for a plan without executing (/plan <task>)"
 
-    async def run(self, app: "SickApp", args: str) -> str | None:
+    async def run(self, app: SickApp, args: str) -> str | None:
         if not args.strip():
             return "usage: /plan <task or description>"
         app.pending_task = args
@@ -129,7 +129,7 @@ class ApproveCommand(SlashCommand):
     name = "approve"
     hint = "execute the pending /plan task"
 
-    async def run(self, app: "SickApp", args: str) -> str | None:
+    async def run(self, app: SickApp, args: str) -> str | None:
         if not app.pending_task:
             return "nothing pending — start with `/plan <task>`"
         task = app.pending_task
@@ -145,7 +145,7 @@ class RejectCommand(SlashCommand):
     name = "reject"
     hint = "discard the pending /plan task"
 
-    async def run(self, app: "SickApp", args: str) -> str | None:
+    async def run(self, app: SickApp, args: str) -> str | None:
         if not app.pending_task:
             return "nothing pending"
         app.pending_task = None
@@ -156,7 +156,7 @@ class VisualCommand(SlashCommand):
     name = "visual"
     hint = "make an explanatory video with Remotion (/visual <topic>)"
 
-    async def run(self, app: "SickApp", args: str) -> str | None:
+    async def run(self, app: SickApp, args: str) -> str | None:
         if not args.strip():
             return "usage: /visual <topic or description>"
         await app._send(
@@ -184,7 +184,7 @@ class SlashCommandRegistry:
             for alias in cmd.aliases:
                 self.commands[alias] = cmd
 
-    async def dispatch(self, app: "SickApp", line: str) -> str | None:
+    async def dispatch(self, app: SickApp, line: str) -> str | None:
         parts = line[1:].strip().split(maxsplit=1)
         name = parts[0].lower()
         args = parts[1] if len(parts) > 1 else ""

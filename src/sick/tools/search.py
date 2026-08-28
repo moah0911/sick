@@ -1,9 +1,7 @@
 import fnmatch
 import re
-from pathlib import Path
 
 from sick.tools.base import WorkspaceTool
-
 
 MAX_SEARCH_FILE_BYTES = 500_000
 MAX_GREP_RESULTS = 200
