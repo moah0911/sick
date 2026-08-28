@@ -27,7 +27,6 @@ async def main() -> None:
     agent = FakeAgent(str(ws))
     from sick.tui.app import SickApp
     from sick.tui.host import TurnHost
-    from sick.tui.chat import ChatView
 
     # minimal chat stub
     class DummyChat:

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Demo: Sick agent writes a fibonacci script and verifies it."""
 import asyncio
+
 from sick import SickAgent, detect
 
 

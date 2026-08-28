@@ -8,8 +8,8 @@ Flow:
 
 Run: uv run python demos/pdf_to_feature.py
 """
-import tempfile
 import subprocess
+import tempfile
 from pathlib import Path
 
 from sick.agent import SickAgent

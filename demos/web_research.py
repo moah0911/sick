@@ -5,7 +5,6 @@ Run: uv run python demos/web_research.py
 """
 import tempfile
 from pathlib import Path
-from unittest.mock import Mock
 
 from sick.agent import SickAgent
 from sick.tools.web import MAX_URL_BYTES

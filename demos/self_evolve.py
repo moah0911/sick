@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Demo: Agent modifies itself by adding a ping tool and verifying it works."""
 import asyncio
+
 from sick import SickAgent, detect
 
 
