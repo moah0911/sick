@@ -16,5 +16,13 @@ def load_config(workspace: str | Path) -> dict:
         return cfg
     for key in DEFAULTS:
         if key in data:
-            cfg[key] = data[key]
+            val = data[key]
+            # validate types — ponytail: don't crash, just ignore bad types
+            if key == "excluded":
+                if not isinstance(val, list) or not all(isinstance(x, str) for x in val):
+                    continue
+            elif key == "model":
+                if not isinstance(val, str):
+                    continue
+            cfg[key] = val
     return cfg

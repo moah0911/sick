@@ -33,16 +33,25 @@ class Checkpoint(WorkspaceTool):
             return "[error: not a git repository]"
         if _is_clean(self.root):
             return "no changes to checkpoint"
+        # remember current branch/ref
+        cur = _git(self.root, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
         if _git(self.root, "rev-parse", "--verify", CHECKPOINT_BRANCH).returncode != 0:
             _git(self.root, "checkout", "-b", CHECKPOINT_BRANCH)
         else:
             _git(self.root, "checkout", CHECKPOINT_BRANCH)
         _git(self.root, "add", "-A")
         r = _git(self.root, "commit", "-m", f"[sick] {message}")
-        _git(self.root, "checkout", "-")
+        # get hash reliably
+        h = _git(self.root, "rev-parse", "HEAD").stdout.strip() if r.returncode == 0 else ""
+        # return to original branch
+        if cur and cur != CHECKPOINT_BRANCH:
+            _git(self.root, "checkout", cur)
+        else:
+            _git(self.root, "checkout", "-")
         if r.returncode != 0:
             return f"[error: checkpoint failed: {r.stderr.strip()}]"
-        return f"checkpoint created: {r.stdout.strip().split()[-1]}"
+        short = h[:7] if h else r.stdout.strip().split()[-1]
+        return f"checkpoint created: {short}"
 
 
 class Restore(WorkspaceTool):
@@ -58,6 +67,14 @@ class Restore(WorkspaceTool):
         if _git(self.root, "rev-parse", "--verify", f"{ref}^{{commit}}").returncode != 0:
             return f"[error: checkpoint {n} does not exist]"
         r = _git(self.root, "restore", "--source", ref, "--worktree", "--staged", ".")
+        # remove untracked files created after checkpoint
+        if r.returncode == 0:
+            _git(self.root, "clean", "-fd")
+        # fallback for older git without restore
+        if r.returncode != 0:
+            r = _git(self.root, "checkout", ref, "--", ".")
+            if r.returncode == 0:
+                _git(self.root, "clean", "-fd")
         if r.returncode != 0:
             return f"[error: restore failed: {r.stderr.strip()}]"
         return f"workspace restored from checkpoint {n}"

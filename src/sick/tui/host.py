@@ -30,6 +30,14 @@ class TurnHost:
         self._task = asyncio.create_task(self._dispatcher())
 
     def stop(self) -> None:
+        try:
+            self.agent.event_manager.off("BeforeTurn", self._on_before_turn)
+        except Exception:
+            pass
+        try:
+            self.agent.event_manager.off("AfterTurn", self._on_after_turn)
+        except Exception:
+            pass
         if self._task:
             self._task.cancel()
 
@@ -62,7 +70,9 @@ class TurnHost:
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
-                self.chat.add_error(f"turn failed: {exc}")
+                import traceback
+
+                self.chat.add_error(f"turn failed: {exc}\n{traceback.format_exc()[-1000:]}")
             finally:
                 self._set_busy(False)
 

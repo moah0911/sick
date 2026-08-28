@@ -7,7 +7,7 @@ Sick is an object-oriented coding agent that reads, writes, and edits code — a
 ## Quick Start
 
 ```bash
-git clone <your-repo-url> sick && cd sick
+git clone https://github.com/NVIDIA-NeMo/labs-OO-Agents sick && cd sick
 ./install.sh            # uv, deps, .env, preflight
 # optional: ./install.sh --with-video  (remotion skills for /visual)
 
@@ -35,6 +35,7 @@ All configuration lives in `.env` (see [`.env.example`](.env.example)):
 | `NVIDIA_API_KEY` / `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` | Provider selection (set one) |
 | `SICK_MODEL` | Model override |
 | `SICK_BASE_URL` | Custom OpenAI-compatible endpoint |
+| `SICK_PROVIDER` | Force `nvidia`/`anthropic`/`openai` when multiple keys set |
 | `SICK_MEMORY_DIR` | Experience memory location (default `~/.sick`) |
 | `SICK_REMOTION_DIR` | Remotion skill location (default `~/.agents/skills`) |
 | `SICK_SANDBOX` | `1` to force bash sandboxing |
@@ -190,6 +191,29 @@ src/sick/
     └── host.py       # TurnHost — agent turn loop
 ```
 
+## Demos (real, no mocks)
+
+```bash
+uv run python demos/pdf_to_feature.py   # PDF spec → auth → checkpoint/restore
+uv run python demos/refactor_legacy.py  # grep + edit_file rename across files
+uv run python demos/web_research.py     # fetch_url SSRF + truncation
+uv run python demos/visual_demo.py      # /visual slash + real filesystem scaffold
+uv run python demos/hello.py            # fibonacci + verify
+uv run python demos/self_evolve.py      # modify_self ping demo
+```
+
 ## Experiments
 
 See `experiments/` for research on self-modification and internet-augmented coding.
+
+## Development
+
+```bash
+uv sync --group dev
+uv run ruff check src tests
+uv run mypy src
+uv run pytest -q --cov
+uv run sick --preflight
+docker build -t sick:local .
+```
+See `CONTRIBUTING.md`, `ARCHITECTURE.md`, `CHANGELOG.md`.

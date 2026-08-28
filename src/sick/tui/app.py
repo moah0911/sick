@@ -55,7 +55,20 @@ class SickApp(App):
         self.chat_view = self.query_one(ChatView)
         self.input = self.query_one(SickInput)
         self.host.chat = self.chat_view
-        self.agent._render_message = self.chat_view.add_agent
+        # ponytail: guard markdown errors from LLM output
+        orig_add = self.chat_view.add_agent
+
+        def _safe_add(text: str) -> None:
+            try:
+                orig_add(text)
+            except Exception as e:
+                self.chat_view.add_tool(f"[render error: {e}]")
+                try:
+                    self.chat_view.write(f"  sick: {text[:4000]}")
+                except Exception:
+                    pass
+
+        self.agent._render_message = _safe_add
         self.host.start()
         self.chat_view.add_tool("ready — type a message, /help for commands")
         self.set_focus(self.input)
@@ -114,15 +127,31 @@ class SickApp(App):
         await self.host.submit(expanded)
 
     def _expand_attachments(self, text: str) -> str:
-        for m in re.finditer(r"@(\S+)", text):
-            p = Path(m.group(1))
+        for m in re.finditer(r"@([^\s,;]+)", text):
+            raw = m.group(1).rstrip(",.;: )]")
+            if not raw:
+                continue
+            p = Path(raw)
             if not p.exists() or p.is_dir():
                 continue
             try:
+                # Enforce workspace boundary for non-PDF; PDFs already do resolve_path
+                if p.suffix.lower() != ".pdf":
+                    try:
+                        # reuse agent's read_file workspace check
+                        self.agent._tools["read_file"].resolve_path(str(p))
+                    except ValueError as e:
+                        content = f"[blocked: {e}]"
+                        text += f"\n\n--- attached: {p} ---\n{content}"
+                        continue
                 if p.suffix.lower() == ".pdf":
                     content = self.agent.parse_pdf(str(p))
                 else:
-                    content = p.read_text(errors="replace")[:MAX_ATTACH_BYTES]
+                    raw_content = p.read_text(errors="replace")
+                    truncated = len(raw_content) > MAX_ATTACH_BYTES
+                    content = raw_content[:MAX_ATTACH_BYTES]
+                    if truncated:
+                        content += f"\n[truncated after {MAX_ATTACH_BYTES} bytes]"
             except Exception as exc:
                 content = f"[unreadable: {exc}]"
             text += f"\n\n--- attached: {p} ---\n{content}"

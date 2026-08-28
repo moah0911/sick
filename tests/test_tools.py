@@ -174,10 +174,9 @@ def test_agent_registers_every_advertised_tool():
     assert "class SickAgent" in agent.self_read("agent.py")
 
 
-def test_experience_memory():
+def test_experience_memory(tmp_path):
     from sick.memory import Experience, ExperienceMemory
-    import tempfile
-    mem = ExperienceMemory(path=tempfile.mktemp())
+    mem = ExperienceMemory(path=tmp_path / "mem.jsonl")
     mem.record(Experience(task="add dark mode", outcome="success", pattern="css variables", tools=["read_file", "edit_file"]))
     results = mem.recall("dark mode")
     assert len(results) == 1
@@ -188,7 +187,7 @@ def test_remotion_skill_default_in_agent_context(monkeypatch):
     from sick import agent as agent_module
     from sick.agent import SickAgent
 
-    monkeypatch.setattr(agent_module, "REMOTION_PROMPT", "## remotion\nfake skill body")
+    monkeypatch.setattr(agent_module, "_get_remotion_prompt", lambda: "## remotion\nfake skill body")
     agent = SickAgent()
     assert agent.context["remotion"] == "## remotion\nfake skill body"
     assert getattr(agent, "remotion") is not None

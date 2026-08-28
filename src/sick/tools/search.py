@@ -1,3 +1,4 @@
+import fnmatch
 import re
 from pathlib import Path
 
@@ -5,6 +6,7 @@ from sick.tools.base import WorkspaceTool
 
 
 MAX_SEARCH_FILE_BYTES = 500_000
+MAX_GREP_RESULTS = 200
 
 
 class Grep(WorkspaceTool):
@@ -24,7 +26,7 @@ class Grep(WorkspaceTool):
         for p in search_root.rglob("*"):
             if not p.is_file() or self.is_ignored(p):
                 continue
-            if include and not p.match(include):
+            if include and not fnmatch.fnmatch(p.name, include) and not fnmatch.fnmatch(str(p.relative_to(self.root)), include):
                 continue
             try:
                 if p.stat().st_size > MAX_SEARCH_FILE_BYTES:
@@ -35,6 +37,9 @@ class Grep(WorkspaceTool):
                 for i, line in enumerate(data.decode("utf-8", errors="replace").splitlines(), 1):
                     if regex.search(line):
                         results.append(f"{p.relative_to(self.root)}:{i}: {line}")
+                        if len(results) >= MAX_GREP_RESULTS:
+                            results.append(f"[truncated after {MAX_GREP_RESULTS} results]")
+                            return results
             except OSError:
                 continue
         return results

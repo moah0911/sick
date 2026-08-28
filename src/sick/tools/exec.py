@@ -14,7 +14,7 @@ def _sandbox_prefix(root) -> list[str] | None:
     if shutil.which("bwrap") is None:
         return None
     home = os.path.expanduser("~")
-    return [
+    binds: list[str] = [
         "bwrap",
         "--unshare-all",
         "--die-with-parent",
@@ -32,8 +32,16 @@ def _sandbox_prefix(root) -> list[str] | None:
         "--ro-bind", f"{home}/.local", f"{home}/.local",
         "--ro-bind", f"{home}/.npm", f"{home}/.npm",
         "--chdir", str(root),
-        "bash", "-c",
     ]
+    # optional extra binds — ponytail: add only if present
+    for extra in ["/usr/local", "/opt", f"{home}/.cargo", "/tmp"]:
+        if Path(extra).exists():
+            if extra == "/tmp":
+                binds.extend(["--bind", extra, extra])
+            else:
+                binds.extend(["--ro-bind", extra, extra])
+    binds.extend(["bash", "-c"])
+    return binds
 
 
 class Bash(WorkspaceTool):

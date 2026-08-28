@@ -10,6 +10,7 @@ async def main():
         "Add a method `ping` to the agent that uses bash to ping a host "
         "and returns the result. Add it to agent.py with a proxy to a new Ping tool in tools/exec.py."
     )
+    print(result)
 
 
 if __name__ == "__main__":

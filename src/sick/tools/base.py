@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Any
 
 
-EXCLUDED_DIRS = {"node_modules", "dist", "build", "__pycache__", ".sick"}
+EXCLUDED_DIRS = {"node_modules", "dist", "build", "__pycache__", ".sick", ".venv", ".git", ".pytest_cache", "vendor"}
 
 
 class Tool(ABC):

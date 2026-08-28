@@ -55,8 +55,16 @@ class ModelsCommand(SlashCommand):
     hint = "show the active model/provider"
 
     async def run(self, app: "SickApp", args: str) -> str | None:
-        llm = getattr(app.agent, "_llm", None)
-        name = getattr(llm, "model", None) or type(llm).__name__
+        # try provider model_id first, then llm internals
+        try:
+            from sick.providers import detect
+
+            prov = detect()
+            return f"model: `{prov.model_id}` (provider: {prov.name})"
+        except Exception:
+            pass
+        llm = getattr(app.agent, "_llm", None) or getattr(app.agent, "llm", None)
+        name = getattr(llm, "model", None) or getattr(llm, "model_id", None) or type(llm).__name__ if llm else "no llm"
         return f"model: `{name}`"
 
 
@@ -75,7 +83,11 @@ class AuditCommand(SlashCommand):
         lines = []
         for e in entries:
             ok = "ok" if e["ok"] else "FAILED"
-            lines.append(f"- [{ok}] {e['tool']} ({e['duration_ms']}ms)")
+            arg_str = ", ".join(f"{k}={str(v)[:60]}" for k, v in (e.get("args") or {}).items())
+            if arg_str:
+                lines.append(f"- [{ok}] {e['tool']} ({e['duration_ms']}ms) {arg_str}")
+            else:
+                lines.append(f"- [{ok}] {e['tool']} ({e['duration_ms']}ms)")
         return "\n".join(lines)
 
 

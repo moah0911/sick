@@ -16,16 +16,25 @@ class AuditLog:
         duration_ms: int,
         **args: object,
     ) -> None:
+        # redaction for secrets that might be in args (e.g., content writing .env)
+        import re
+
+        redacted = {}
+        for k, v in args.items():
+            s = str(v) if not isinstance(v, str) else v
+            s = re.sub(r"(?i)(api[_-]?key\s*[:=]\s*)([^\s\"']+)", r"\1[REDACTED]", s)
+            s = re.sub(r"(?i)(sk-[a-z0-9\-]{10,})", "[REDACTED]", s)
+            redacted[k] = s
         entry = {
             "t": time.time(),
             "tool": tool,
             "ok": ok,
             "duration_ms": duration_ms,
-            "args": args,
+            "args": redacted,
         }
         self._path.parent.mkdir(parents=True, exist_ok=True)
         with open(self._path, "a") as f:
-            f.write(json.dumps(entry) + "\n")
+            f.write(json.dumps(entry, default=str) + "\n")
 
     def entries(self, n: int | None = None) -> list[dict]:
         if not self._path.exists():

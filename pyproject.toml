@@ -3,18 +3,23 @@ name = "sick"
 version = "0.1.0"
 description = "Self-improving coding agent built on the NOOA framework"
 readme = "README.md"
-requires-python = ">=3.13"
-license = "Apache-2.0"
+requires-python = ">=3.12"
+license = { text = "Apache-2.0" }
 authors = [
     { name = "Sick contributors" },
 ]
+maintainers = [
+    { name = "Sick contributors" },
+]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Topic :: Software Development :: Code Generators",
 ]
+keywords = ["agent", "coding-assistant", "llm", "nooa", "textual"]
 
 dependencies = [
     "nooa",
@@ -23,9 +28,10 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/your-org/sick"
-Repository = "https://github.com/your-org/sick"
-Issues = "https://github.com/your-org/sick/issues"
+Homepage = "https://github.com/NVIDIA-NeMo/labs-OO-Agents"
+Repository = "https://github.com/NVIDIA-NeMo/labs-OO-Agents"
+Issues = "https://github.com/NVIDIA-NeMo/labs-OO-Agents/issues"
+Documentation = "https://github.com/NVIDIA-NeMo/labs-OO-Agents/blob/main/docs/sick.md"
 
 [project.optional-dependencies]
 pdf = ["docling>=1.0"]
@@ -43,4 +49,40 @@ build-backend = "hatchling.build"
 [dependency-groups]
 dev = [
     "pytest>=9.1.1",
+    "pytest-cov>=6.0",
+    "ruff>=0.12",
+    "mypy>=1.13",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --strict-markers"
+markers = [
+    "llm: requires live LLM key",
+]
+
+[tool.coverage.run]
+source = ["sick"]
+branch = true
+
+[tool.coverage.report]
+skip_covered = false
+show_missing = true
+fail_under = 70
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "C4", "UP"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.12"
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/sick"]

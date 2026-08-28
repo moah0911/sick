@@ -29,7 +29,7 @@ class ExperienceMemory:
 
     def record(self, exp: Experience) -> None:
         with open(self._path, "a") as f:
-            f.write(json.dumps(asdict(exp)) + "\n")
+            f.write(json.dumps(asdict(exp), default=str) + "\n")
 
     def recall(self, task_type: str, top_k: int = 3) -> list[Experience]:
         if not self._path.exists():
@@ -37,8 +37,14 @@ class ExperienceMemory:
         results = []
         with open(self._path) as f:
             for line in f:
-                d = json.loads(line)
-                exp = Experience(**d)
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    d = json.loads(line)
+                    exp = Experience(**d)
+                except (json.JSONDecodeError, TypeError, ValueError):
+                    continue
                 if task_type.lower() in exp.task.lower() or task_type.lower() in exp.pattern.lower():
                     results.append(exp)
         results.sort(key=lambda e: e.timestamp, reverse=True)

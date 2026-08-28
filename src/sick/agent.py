@@ -63,7 +63,24 @@ def _load_remotion_skill(base: Path = REMOTION_SKILL_DIR) -> str:
     return "\n\n".join(parts) + REMOTION_REFERENCE_HINT
 
 
-REMOTION_PROMPT = _load_remotion_skill()
+def _get_remotion_prompt() -> str:
+    try:
+        return _load_remotion_skill()
+    except Exception:
+        return REMOTION_FALLBACK
+
+
+# ponytail: lazy so import doesn't hit filesystem in tests
+REMOTION_PROMPT = ""
+
+
+class _LazyRemotionSkill(Skill):
+    context_block = ("remotion", "")
+
+    def attach(self, agent):
+        prompt = _get_remotion_prompt()
+        agent.context["remotion"] = prompt
+        self.context_block = ("remotion", prompt)
 
 
 SDLC_PROMPT = """## sdlc_and_oo
@@ -91,11 +108,8 @@ class PDFSkill(Skill):
         agent.context["pdf_handling"] = PDF_PROMPT
 
 
-class RemotionSkill(Skill):
-    context_block = ("remotion", REMOTION_PROMPT)
-
-    def attach(self, agent):
-        agent.context["remotion"] = REMOTION_PROMPT
+class RemotionSkill(_LazyRemotionSkill):
+    pass
 
 
 class SdlcSkill(Skill):
@@ -146,15 +160,26 @@ class SickAgent(InteractiveAgent):
         self._tool_counts: dict[str, int] = {}
         self.turns = 0
 
+        from sick.tools.base import EXCLUDED_DIRS as _EXCL
+
+        merged_excluded = set(_EXCL) | set(cfg.get("excluded") or [])
+        # CodeResearch builds index on init; ensure it uses merged excluded
+        # by setting excluded before build (rebuild if needed)
+        code_research_tool = CodeResearch(str(self.workspace))
+        if getattr(code_research_tool.index, "excluded", None) != merged_excluded:
+            code_research_tool.index.excluded = merged_excluded
+            # rebuild if config adds exclusions (cheap: uses cache when possible)
+            code_research_tool.index.build()
+            code_research_tool.chunk_count = len(code_research_tool.index.chunks)
+
         for t in [
             ReadFile(self.workspace), WriteFile(self.workspace), EditFile(self.workspace),
             Bash(self.workspace), Grep(self.workspace), Glob(self.workspace),
-            ParsePdf(self.workspace), CodeResearch(str(self.workspace)), SelfRead(), SelfWrite(),
+            ParsePdf(self.workspace), code_research_tool, SelfRead(), SelfWrite(),
             FetchUrl(), Checkpoint(self.workspace), Restore(self.workspace),
             ListCheckpoints(self.workspace),
         ]:
-            if cfg["excluded"]:
-                t.excluded = set(cfg["excluded"])
+            t.excluded = merged_excluded
             self._tools[t.name] = t
 
         self._register_skill(PonytailSkill())
@@ -175,24 +200,49 @@ class SickAgent(InteractiveAgent):
         spec(self, attr_name, hidden=False)
 
     def _handle_attachments(self, attachments: list[str]) -> None:
+        MAX_ATTACH_BYTES = 100_000
         for a in attachments:
             p = Path(a)
-            if not p.exists():
+            if not p.exists() or p.is_dir():
                 continue
             if p.suffix.lower() == ".pdf":
                 tool = self._tools.get("parse_pdf")
                 if tool:
                     md = self._call("parse_pdf", path=str(p))
                     self.context[f"attachment_{p.stem}"] = md
+            else:
+                try:
+                    # Reuse workspace confinement: try read_file, fallback raw read with bound
+                    content = self._tools["read_file"].execute(path=str(p))
+                    if content.startswith("Error:"):
+                        content = p.read_text(errors="replace")[:MAX_ATTACH_BYTES]
+                    else:
+                        content = content[:MAX_ATTACH_BYTES]
+                    if len(content) >= MAX_ATTACH_BYTES:
+                        content += f"\n[truncated after {MAX_ATTACH_BYTES} bytes]"
+                    self.context[f"attachment_{p.stem}"] = content
+                except Exception as e:
+                    self.context[f"attachment_{p.stem}"] = f"[unreadable: {e}]"
 
     # ── tool proxy methods ──
 
     def _call(self, tool: str, **kwargs: Any) -> Any:
         start = time.monotonic()
         result = self._tools[tool].execute(**kwargs)
-        head = result.strip()[:12] if isinstance(result, str) else ""
-        ok = not head.startswith(("Error", "[error", "[timed out", "[exit code"))
-        self.audit.record(tool, ok=ok, duration_ms=round((time.monotonic() - start) * 1000), **kwargs)
+        # ponytail: type-aware ok detection — bool/list/str each have distinct error shapes
+        if isinstance(result, bool):
+            ok = result
+        elif isinstance(result, list):
+            ok = not (result and isinstance(result[0], str) and result[0].startswith("Error:"))
+        elif isinstance(result, str):
+            head = result.strip()[:12]
+            ok = not head.startswith(("Error", "[error", "[timed out", "[exit code"))
+        else:
+            ok = True
+        try:
+            self.audit.record(tool, ok=ok, duration_ms=round((time.monotonic() - start) * 1000), **kwargs)
+        except Exception:
+            pass
         self._tool_counts[tool] = self._tool_counts.get(tool, 0) + 1
         return result
 
@@ -252,7 +302,8 @@ class SickAgent(InteractiveAgent):
         return "\n".join(lines)
 
     def _record_experience(self, task: str, outcome: str, pattern: str) -> None:
-        self.memory.record(Experience(task=task, outcome=outcome, pattern=pattern, tools=[]))
+        tools = sorted(self._tool_counts.keys())
+        self.memory.record(Experience(task=task, outcome=outcome, pattern=pattern, tools=tools))
 
     # ── interactive turn protocol ──
 

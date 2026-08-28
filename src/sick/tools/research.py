@@ -64,6 +64,7 @@ class CodeIndex:
         self.chunks: list[Chunk] = []
         self.build_time = 0.0
         self.file_count = 0
+        self.excluded: set[str] = set(EXCLUDED_DIRS)
 
     def build(self) -> int:
         started = time.monotonic()
@@ -100,10 +101,10 @@ class CodeIndex:
             files.append(p)
         return sorted(files)
 
-    @staticmethod
-    def _is_ignored(rel: Path) -> bool:
+    def _is_ignored(self, rel: Path) -> bool:
+        excluded = getattr(self, "excluded", EXCLUDED_DIRS)
         return any(
-            part.startswith(".") or part in EXCLUDED_DIRS
+            part.startswith(".") or part in excluded
             for part in rel.parts
         )
 
@@ -182,18 +183,19 @@ class CodeIndex:
         return score
 
     def research(self, query: str, k: int = 8) -> str:
+        k = max(1, min(k, 50))
         hits = self.search(query, k)
         if not hits:
             return f"no matching code found for: {query}"
         lines = [f"## {query}"]
         for h in hits:
             c = h.chunk
-            head = (c.content.splitlines() or [""])[0]
+            preview = "\n".join((c.content.splitlines() or [""])[:3])
             lines.append(
                 f"- `{c.path}:{c.start}` — {c.kind} `{c.name}` (score {h.score:.1f})"
             )
-            if head:
-                lines.append(f"  ```\n  {head}\n  ```")
+            if preview.strip():
+                lines.append(f"  ```\n  {preview[:400]}\n  ```")
         return "\n".join(lines)
 
     def status(self) -> str:
@@ -220,7 +222,7 @@ class CodeIndex:
         try:
             self._cache_path().parent.mkdir(parents=True, exist_ok=True)
             payload = {"mtimes": mtimes, "chunks": [asdict(c) for c in self.chunks]}
-            tmp = self._cache_path().with_suffix(".tmp")
+            tmp = self._cache_path().parent / (self._cache_path().name + ".tmp")
             tmp.write_text(json.dumps(payload))
             tmp.replace(self._cache_path())
         except OSError:

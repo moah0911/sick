@@ -15,10 +15,26 @@ class FileSuggester(Suggester):
         if marker == -1:
             return None
         token = value[marker + 1 :]
-        if not token or "/" not in token and token.startswith((".", "/", "~")):
-            candidates = [p.name for p in Path(".").glob(f"{token}*")]
+        if not token:
+            return None
+        # expand ~ and handle nested paths
+        try:
+            p = Path(token).expanduser()
+            if "/" in token:
+                base = p.parent if p.parent != Path("") else Path(".")
+                prefix = p.name
+                if not base.exists():
+                    return None
+                candidates = [str(base / c.name) if str(base) != "." else c.name for c in base.glob(f"{prefix}*")]
+            else:
+                candidates = [c.name for c in Path(".").glob(f"{token}*")]
             if len(candidates) == 1:
                 return value[: marker + 1] + candidates[0]
+            if 1 < len(candidates) <= 5 and token:
+                # ponytail: don't guess when many; wait for more chars
+                return None
+        except Exception:
+            return None
         return None
 
 

@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 from nooa.unifiedllm import UnifiedLLM
 from nooa.unifiedllm.registry import get_llm_client
 
-load_dotenv(override=True)
+load_dotenv(override=False)
 
 
 class LLMProvider(ABC):
@@ -29,9 +29,13 @@ class NVIDIA(LLMProvider):
         return self._model
 
     def create_llm(self) -> UnifiedLLM:
+        key = os.environ.get("NVIDIA_API_KEY")
+        if not key:
+            raise ValueError("NVIDIA_API_KEY not set")
         return get_llm_client(
             f"nvidia_nim/{self._model}",
-            api_key=os.environ["NVIDIA_API_KEY"],
+            api_key=key,
+            timeout=60,
         )
 
 
@@ -47,9 +51,12 @@ class OpenAICompatible(LLMProvider):
         return self._model
 
     def create_llm(self) -> UnifiedLLM:
-        kwargs = {"api_key": os.environ.get("OPENAI_API_KEY")}
+        key = os.environ.get("OPENAI_API_KEY")
+        if not key:
+            raise ValueError("OPENAI_API_KEY not set")
+        kwargs: dict = {"api_key": key, "timeout": 60}
         if self._base_url:
-            kwargs["api_base"] = self._base_url
+            kwargs["api_base"] = self._base_url.rstrip("/")
         return get_llm_client(self._model, **kwargs)
 
 
@@ -64,13 +71,42 @@ class Anthropic(LLMProvider):
         return self._model
 
     def create_llm(self) -> UnifiedLLM:
-        return get_llm_client(self._model, api_key=os.environ["ANTHROPIC_API_KEY"])
+        key = os.environ.get("ANTHROPIC_API_KEY")
+        if not key:
+            raise ValueError("ANTHROPIC_API_KEY not set")
+        return get_llm_client(self._model, api_key=key, timeout=60)
 
 
 def detect(model: str | None = None) -> LLMProvider:
     if model is None:
         model = os.environ.get("SICK_MODEL")
     base_url = os.environ.get("SICK_BASE_URL")
+    provider_override = os.environ.get("SICK_PROVIDER", "").lower()
+
+    def _model_matches(prefixes: list[str]) -> bool:
+        if not model:
+            return False
+        ml = model.lower()
+        return any(ml.startswith(p) for p in prefixes)
+
+    # explicit override
+    if provider_override == "nvidia" and os.environ.get("NVIDIA_API_KEY"):
+        return NVIDIA(model or "nvidia/llama-3.1-8b-instruct")
+    if provider_override == "anthropic" and os.environ.get("ANTHROPIC_API_KEY"):
+        return Anthropic(model or "claude-sonnet-4-20250514")
+    if provider_override in ("openai", "openai_compatible") and os.environ.get("OPENAI_API_KEY"):
+        return OpenAICompatible(model or "gpt-4o-mini", base_url)
+
+    # infer from model prefix if set
+    if _model_matches(["nvidia"]):
+        if os.environ.get("NVIDIA_API_KEY"):
+            return NVIDIA(model or "nvidia/llama-3.1-8b-instruct")
+    if _model_matches(["claude"]):
+        if os.environ.get("ANTHROPIC_API_KEY"):
+            return Anthropic(model or "claude-sonnet-4-20250514")
+    if _model_matches(["gpt", "o1", "o3"]):
+        if os.environ.get("OPENAI_API_KEY"):
+            return OpenAICompatible(model or "gpt-4o-mini", base_url)
 
     if os.environ.get("NVIDIA_API_KEY"):
         return NVIDIA(model or "nvidia/llama-3.1-8b-instruct")

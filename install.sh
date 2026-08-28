@@ -19,7 +19,8 @@ uv sync
 # 3. Environment file
 if [ ! -f .env ]; then
   cp .env.example .env
-  log "created .env — set one of NVIDIA_API_KEY / ANTHROPIC_API_KEY / OPENAI_API_KEY"
+  chmod 600 .env 2>/dev/null || true
+  log "created .env (600) — set one of NVIDIA_API_KEY / ANTHROPIC_API_KEY / OPENAI_API_KEY"
 else
   log ".env already exists — leaving it untouched"
 fi
