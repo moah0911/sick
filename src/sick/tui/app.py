@@ -135,18 +135,11 @@ class SickApp(App):
             if not p.exists() or p.is_dir():
                 continue
             try:
-                # Enforce workspace boundary for non-PDF; PDFs already do resolve_path
-                if p.suffix.lower() != ".pdf":
-                    try:
-                        # reuse agent's read_file workspace check
-                        self.agent._tools["read_file"].resolve_path(str(p))
-                    except ValueError as e:
-                        content = f"[blocked: {e}]"
-                        text += f"\n\n--- attached: {p} ---\n{content}"
-                        continue
                 if p.suffix.lower() == ".pdf":
                     content = self.agent.parse_pdf(str(p))
                 else:
+                    # TUI attachments are user-initiated, allow outside workspace (unlike tool reads)
+                    # but still bound size and handle errors
                     raw_content = p.read_text(errors="replace")
                     truncated = len(raw_content) > MAX_ATTACH_BYTES
                     content = raw_content[:MAX_ATTACH_BYTES]

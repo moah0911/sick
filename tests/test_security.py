@@ -7,11 +7,17 @@ from sick.tools.web import FetchUrl
 
 
 def test_attachment_blocks_outside_workspace(tmp_path):
+    # TUI attachments are user-initiated so they are ALLOWED outside workspace;
+    # tool confinement must still block direct read_file outside
     outside = tmp_path.parent / "secret.txt"
     outside.write_text("private")
-    app = __import__("sick.tui.app", fromlist=["SickApp"]).SickApp(SickAgent(workspace=tmp_path))
+    agent = SickAgent(workspace=tmp_path)
+    # tool read should be blocked
+    assert "escapes workspace" in agent.read_file(str(outside))
+    # but TUI @ attach is intentionally allowed (user explicitly asked)
+    app = __import__("sick.tui.app", fromlist=["SickApp"]).SickApp(agent)
     out = app._expand_attachments(f"see @{outside}")
-    assert "blocked" in out or "private" not in out
+    assert "private" in out
 
 
 def test_fetch_url_blocks_localhost():
