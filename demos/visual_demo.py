@@ -8,6 +8,7 @@ Run: uv run python demos/visual_demo.py
 """
 import asyncio
 import tempfile
+import time
 from pathlib import Path
 
 from sick.agent import SickAgent
@@ -30,8 +31,11 @@ async def main() -> None:
 
     # minimal chat stub
     class DummyChat:
-        def set_busy(self, busy): pass
-        def add_error(self, text): print(text)
+        def set_busy(self, busy):
+            pass
+
+        def add_error(self, text):
+            print(text)
 
     chat = DummyChat()
     host = TurnHost(agent, chat)  # type: ignore
@@ -42,7 +46,6 @@ async def main() -> None:
     print(result)
     assert "hash table" in result.lower() or "making a video" in result.lower()
     # wait for host to deliver the hidden prompt
-    import time
     deadline = time.time() + 3
     while not agent.received and time.time() < deadline:
         await asyncio.sleep(0.05)
@@ -50,7 +53,9 @@ async def main() -> None:
     assert agent.received and "Remotion" in agent.received[0]
     # simulate scaffold via bash (real file ops)
     agent.write_file("remotion-demo/src/Root.tsx", "export const Root=()=>null")
-    assert "Root.tsx" in agent.glob("*.tsx", path="remotion-demo")
+    found = agent.glob("*.tsx", path="remotion-demo")
+    print(found)
+    assert any("Root.tsx" in p for p in found)
     print("demo passed: visual_demo")
 
 
