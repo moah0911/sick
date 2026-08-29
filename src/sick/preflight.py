@@ -71,6 +71,55 @@ def preflight(workspace: str) -> tuple[str, bool]:
         lines.append("npx: available (remotion ready)")
     else:
         lines.append("npx: not installed (remotion /visual unavailable)")
+    # cookiecutter
+    try:
+        import importlib.util as _ilu2
+
+        if _ilu2.find_spec("cookiecutter") is not None:
+            lines.append("cookiecutter: available (templates ready)")
+        else:
+            lines.append("cookiecutter: not installed (templates via fallback copy)")
+    except Exception:
+        lines.append("cookiecutter: check failed")
+    # lsp
+    try:
+        import importlib.util as _ilu3
+
+        if _ilu3.find_spec("pygls") is not None:
+            lines.append("pygls: available (lsp ready)")
+        else:
+            lines.append("pygls: not installed (lsp unavailable)")
+    except Exception:
+        lines.append("pygls: check failed")
+    # embeddings
+    emb = os.environ.get("SICK_EMBED_MODEL", "").strip()
+    if emb:
+        lines.append(f"embeddings: {emb} (hybrid search active)")
+    else:
+        lines.append("embeddings: disabled (lexical only, set SICK_EMBED_MODEL to enable)")
+    # pydantic config check
+    try:
+        from sick.config import SickConfig
+
+        SickConfig()
+        lines.append("config: pydantic ok")
+    except Exception as e:
+        lines.append(f"config: FAILED {e}")
+        ok = False
+    # portalocker
+    try:
+        import portalocker  # type: ignore
+
+        lines.append("portalocker: available (locking ready)")
+    except Exception:
+        lines.append("portalocker: not installed (fallback to flock)")
+    # numpy
+    try:
+        import numpy  # type: ignore
+
+        lines.append(f"numpy: available {numpy.__version__} (vectors ready)")
+    except Exception:
+        lines.append("numpy: not installed (pure python fallback)")
 
     lines.append("preflight: " + ("ok" if ok else "FAILED"))
     return "\n".join(lines), ok
