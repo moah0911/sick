@@ -3,11 +3,14 @@ import re
 from pathlib import Path
 
 try:
+    try:
+        from pygls.lsp.server import LanguageServer  # pygls>=2
+    except ImportError:
+        from pygls.server import LanguageServer  # pygls<2
     from lsprotocol import types as lsp
-    from pygls.server import LanguageServer
 except Exception:
-    LanguageServer = None
-    lsp = None
+    LanguageServer = None  # type: ignore
+    lsp = None  # type: ignore
 from sick.config import load_config
 from sick.tools.research import CodeIndex
 
