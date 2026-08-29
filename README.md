@@ -7,7 +7,7 @@ Sick is an object-oriented coding agent that reads, writes, and edits code — a
 ## Quick Start
 
 ```bash
-git clone https://github.com/NVIDIA-NeMo/labs-OO-Agents sick && cd sick
+git clone https://github.com/moah0911/sick.git sick && cd sick
 ./install.sh            # uv, deps, .env, preflight
 # optional: ./install.sh --with-video  (remotion skills for /visual)
 
