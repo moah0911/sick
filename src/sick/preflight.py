@@ -108,7 +108,6 @@ def preflight(workspace: str) -> tuple[str, bool]:
         ok = False
     # portalocker
     try:
-        import portalocker  # type: ignore
 
         lines.append("portalocker: available (locking ready)")
     except Exception:
