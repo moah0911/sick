@@ -256,12 +256,13 @@ def test_config_excluded_dirs_apply_to_tools(tmp_path):
 
 
 def test_load_config_defaults_and_bad_toml(tmp_path):
-    from sick.config import load_config
+    from sick.config import SickConfig, load_config
 
-    assert load_config(tmp_path) == {"workspace": ".", "model": "", "excluded": []}
+    expected = SickConfig().model_dump()
+    assert load_config(tmp_path) == expected
     (tmp_path / ".sick").mkdir()
     (tmp_path / ".sick" / "config.toml").write_text("not [valid toml")
-    assert load_config(tmp_path) == {"workspace": ".", "model": "", "excluded": []}
+    assert load_config(tmp_path) == expected
 
 
 def test_git_checkpoint_and_restore(tmp_path, monkeypatch):

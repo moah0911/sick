@@ -1,21 +1,31 @@
-"""Code research: our own codebase index.
+"""Code research: codebase index with hybrid lexical + embeddings.
 
-- index: ast-based function/class chunks for .py, 100-line bands otherwise
-- search: weighted token overlap (name hits > prefix hits > body hits)
-- research: top-k chunks rendered with paths for the agent to read
+- index: ast chunks + 100-line bands
+- search: lexical 4/2/1 + optional litellm embeddings (SICK_EMBED_MODEL), RRF hybrid via numpy cosine
+- research: top-k rendered
 
-ponytail: lexical scoring only. If natural-language recall falls short, add
-embeddings via litellm.embedding (already a nooa dep) behind this API.
+ponytail: numpy cosine batch; litellm via nooa, fallback lexical; vectors cached at .sick/indexes/vectors.npz
 """
 
 import ast
+import hashlib
 import json
+import math
+import os
 import re
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from sick.tools.base import EXCLUDED_DIRS, WorkspaceTool
+
+try:
+    import numpy as np  # type: ignore
+
+    HAS_NUMPY = True
+except Exception:  # pragma: no cover
+    np = None  # type: ignore
+    HAS_NUMPY = False
 
 STOPWORDS = {
     "the", "and", "for", "with", "from", "this", "that", "have", "has",
@@ -33,6 +43,43 @@ CODE_EXT = {
 MAX_FILE_BYTES = 500_000
 CHUNK_LINES = 100
 _IDENT = re.compile(r"[a-z0-9_]+|[A-Z][a-z0-9_]*")
+EMBED_CACHE_VERSION = 1
+
+
+def _get_embed_model() -> str | None:
+    return os.environ.get("SICK_EMBED_MODEL", "").strip() or None
+
+
+def _get_max_bytes() -> int:
+    try:
+        v = int(os.environ.get("SICK_MAX_READ_BYTES", str(MAX_FILE_BYTES)))
+        return max(10_000, min(10_000_000, v))
+    except ValueError:
+        return MAX_FILE_BYTES
+
+
+def _cosine(a, b) -> float:
+    dot = sum(x * y for x, y in zip(a, b))
+    na = math.sqrt(sum(x * x for x in a))
+    nb = math.sqrt(sum(y * y for y in b))
+    return dot / (na * nb) if na and nb else 0.0
+
+
+def _batch_cosine(matrix, q) -> list[float]:
+    if HAS_NUMPY and matrix is not None:
+        try:
+            import numpy as _np  # type: ignore
+            q_arr = _np.array(q, dtype=_np.float32)
+            qn = q_arr / _np.linalg.norm(q_arr) if _np.linalg.norm(q_arr) else q_arr
+            m = _np.array(matrix, dtype=_np.float32)
+            norms = _np.linalg.norm(m, axis=1, keepdims=True)
+            norms[norms == 0] = 1
+            mn = m / norms
+            scores = (mn @ qn).tolist()
+            return [float(s) for s in scores]
+        except Exception:
+            pass
+    return [_cosine(row, q) for row in matrix] if matrix is not None else []
 
 
 def tokenize(text: str) -> list[str]:
@@ -42,8 +89,8 @@ def tokenize(text: str) -> list[str]:
 
 @dataclass
 class Chunk:
-    path: str  # relative to index root
-    kind: str  # "function" | "class" | "file"
+    path: str
+    kind: str
     name: str
     start: int
     end: int
@@ -65,9 +112,79 @@ class CodeIndex:
         self.build_time = 0.0
         self.file_count = 0
         self.excluded: set[str] = set(EXCLUDED_DIRS)
+        self.embed_model: str | None = _get_embed_model()
+        self.embeddings: list[list[float]] | None = None
+        self._embed_provider: str = os.environ.get("SICK_EMBED_PROVIDER", "auto")
+
+    def _embed_texts(self, texts: list[str]) -> list[list[float]] | None:
+        model = self.embed_model
+        if not model:
+            return None
+        try:
+            import litellm  # type: ignore
+            vecs: list[list[float]] = []
+            batch = 64
+            for i in range(0, len(texts), batch):
+                chunk = [t[:8000] for t in texts[i : i + batch]]
+                kwargs = {}
+                base = os.environ.get("SICK_BASE_URL")
+                if base:
+                    kwargs["api_base"] = base.rstrip("/")
+                resp = litellm.embedding(model=model, input=chunk, **kwargs)  # type: ignore
+                for d in resp.data:  # type: ignore
+                    emb = d["embedding"] if isinstance(d, dict) else getattr(d, "embedding", [])
+                    vecs.append(list(emb))
+            return vecs
+        except Exception:
+            if self._embed_provider == "auto":
+                try:
+                    from sentence_transformers import SentenceTransformer  # type: ignore
+                    mname = os.environ.get("SICK_EMBED_LOCAL_MODEL", "all-MiniLM-L6-v2")
+                    model_l = SentenceTransformer(mname)
+                    return [v.tolist() for v in model_l.encode(texts, normalize_embeddings=False)]  # type: ignore
+                except Exception:
+                    pass
+            return None
+
+    def _vectors_path(self) -> Path:
+        return self.root / ".sick" / "indexes" / "vectors.npz"
+
+    def _load_vectors(self) -> list[list[float]] | None:
+        p = self._vectors_path()
+        if not p.exists() or not self.embed_model:
+            return None
+        try:
+            import numpy as _np  # type: ignore
+            data = _np.load(str(p), allow_pickle=True)
+            if str(data.get("model", "")) != self.embed_model:
+                return None
+            if int(data.get("version", 0)) != EMBED_CACHE_VERSION:
+                return None
+            vecs = data["vectors"]
+            if len(vecs) != len(self.chunks):
+                return None
+            return [list(v) for v in vecs]
+        except Exception:
+            return None
+
+    def _save_vectors(self) -> None:
+        if not self.embeddings or not self.embed_model:
+            return
+        try:
+            import numpy as _np  # type: ignore
+            p = self._vectors_path()
+            p.parent.mkdir(parents=True, exist_ok=True)
+            tmp = p.with_suffix(".tmp")
+            _np.savez_compressed(str(tmp), vectors=_np.array(self.embeddings, dtype=_np.float32), model=self.embed_model, version=EMBED_CACHE_VERSION)
+            tmp.replace(p)
+        except Exception:
+            pass
 
     def build(self) -> int:
         started = time.monotonic()
+        self.embed_model = _get_embed_model()
+        self._embed_provider = os.environ.get("SICK_EMBED_PROVIDER", "auto")
+        limit = _get_max_bytes()
         files = self._iter_files()
         mtimes = {
             str(f.relative_to(self.root)): [f.stat().st_mtime_ns, f.stat().st_size]
@@ -81,12 +198,26 @@ class CodeIndex:
             for f in files:
                 self.chunks.extend(self._chunk_file(f))
             self._save(mtimes)
+        if self.embed_model and self.chunks:
+            vecs = self._load_vectors()
+            if vecs is None or len(vecs) != len(self.chunks):
+                vecs = self._embed_texts([c.content for c in self.chunks])
+                self.embeddings = vecs
+                if vecs:
+                    self._save_vectors()
+                else:
+                    self.embeddings = None
+            else:
+                self.embeddings = vecs
+        else:
+            self.embeddings = None
         self.file_count = len(mtimes)
         self.build_time = time.monotonic() - started
         return len(self.chunks)
 
     def _iter_files(self) -> list[Path]:
         files = []
+        limit = _get_max_bytes()
         for p in self.root.rglob("*"):
             if not p.is_file() or p.suffix not in CODE_EXT:
                 continue
@@ -94,7 +225,7 @@ class CodeIndex:
             if self._is_ignored(rel):
                 continue
             try:
-                if p.stat().st_size > MAX_FILE_BYTES:
+                if p.stat().st_size > limit:
                     continue
             except OSError:
                 continue
@@ -162,6 +293,26 @@ class CodeIndex:
         q_tokens = tokenize(query)
         if not q_tokens:
             return []
+        if self.embeddings and self.embed_model:
+            try:
+                q_vecs = self._embed_texts([query])
+                if q_vecs and q_vecs[0]:
+                    q_vec = q_vecs[0]
+                    lex = [self._score(c, q_tokens) for c in self.chunks]
+                    max_lex = max(lex) if lex else 1.0
+                    lex_n = [s / max_lex if max_lex else 0 for s in lex]
+                    cos = _batch_cosine(self.embeddings, q_vec)
+                    hybrid_alpha = 0.7
+                    try:
+                        hybrid_alpha = float(os.environ.get("SICK_HYBRID_ALPHA", "0.7"))
+                    except ValueError:
+                        hybrid_alpha = 0.7
+                    scores = [hybrid_alpha * c + (1 - hybrid_alpha) * l for c, l in zip(cos, lex_n)]
+                    scored = [Hit(c, s) for c, s in zip(self.chunks, scores) if s > 0]
+                    scored.sort(key=lambda h: h.score, reverse=True)
+                    return scored[:k]
+            except Exception:
+                pass
         scored = [Hit(c, self._score(c, q_tokens)) for c in self.chunks]
         scored = [h for h in scored if h.score > 0]
         scored.sort(key=lambda h: h.score, reverse=True)
@@ -199,12 +350,11 @@ class CodeIndex:
         return "\n".join(lines)
 
     def status(self) -> str:
+        emb = f", embeddings: {self.embed_model} ({len(self.embeddings or [])} vectors)" if self.embed_model and self.embeddings else (f", embeddings: {self.embed_model} (no vectors)" if self.embed_model else ", embeddings: disabled")
         return (
             f"indexed {len(self.chunks)} chunks from {self.file_count} files "
-            f"({self.build_time:.1f}s, cached at {self._cache_path()})"
+            f"({self.build_time:.1f}s, cached at {self._cache_path()}{emb})"
         )
-
-    # ── cache ──
 
     def _cache_path(self) -> Path:
         return self.root / ".sick" / "indexes" / "code-index.json"

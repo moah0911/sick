@@ -1,0 +1,5 @@
+{
+  "project_name": "my-api",
+  "project_slug": "{{cookiecutter.project_name.lower().replace(' ', '-').replace('_', '-')}}",
+  "author": "you"
+}

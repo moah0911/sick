@@ -7,14 +7,23 @@ from sick.tools.base import WorkspaceTool
 MAX_READ_BYTES = 500_000
 
 
+def _get_limit() -> int:
+    try:
+        v = int(os.environ.get("SICK_MAX_READ_BYTES", str(MAX_READ_BYTES)))
+        return max(10_000, min(10_000_000, v))
+    except ValueError:
+        return MAX_READ_BYTES
+
+
 def _read_text(path: Path) -> tuple[str, bool]:
     """Read a bounded text file, returning its contents and truncation state."""
+    limit = _get_limit()
     with path.open("rb") as stream:
-        data = stream.read(MAX_READ_BYTES + 1)
+        data = stream.read(limit + 1)
     if b"\0" in data:
         raise ValueError("binary files cannot be read as text")
-    truncated = len(data) > MAX_READ_BYTES
-    return data[:MAX_READ_BYTES].decode("utf-8", errors="replace"), truncated
+    truncated = len(data) > limit
+    return data[:limit].decode("utf-8", errors="replace"), truncated
 
 
 def _atomic_write(path: Path, content: str) -> None:
@@ -51,7 +60,7 @@ class ReadFile(WorkspaceTool):
             lines = lines[:limit]
         result = "".join(lines)
         if truncated:
-            result += "\n[truncated after 500000 bytes]"
+            result += f"\n[truncated after {_get_limit()} bytes]"
         return result
 
 
