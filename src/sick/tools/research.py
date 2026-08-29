@@ -8,7 +8,6 @@ ponytail: numpy cosine batch; litellm via nooa, fallback lexical; vectors cached
 """
 
 import ast
-import hashlib
 import json
 import math
 import os
@@ -59,7 +58,7 @@ def _get_max_bytes() -> int:
 
 
 def _cosine(a, b) -> float:
-    dot = sum(x * y for x, y in zip(a, b))
+    dot = sum(x * y for x, y in zip(a, b, strict=True))
     na = math.sqrt(sum(x * x for x in a))
     nb = math.sqrt(sum(y * y for y in b))
     return dot / (na * nb) if na and nb else 0.0
@@ -69,6 +68,7 @@ def _batch_cosine(matrix, q) -> list[float]:
     if HAS_NUMPY and matrix is not None:
         try:
             import numpy as _np  # type: ignore
+
             q_arr = _np.array(q, dtype=_np.float32)
             qn = q_arr / _np.linalg.norm(q_arr) if _np.linalg.norm(q_arr) else q_arr
             m = _np.array(matrix, dtype=_np.float32)
@@ -184,7 +184,6 @@ class CodeIndex:
         started = time.monotonic()
         self.embed_model = _get_embed_model()
         self._embed_provider = os.environ.get("SICK_EMBED_PROVIDER", "auto")
-        limit = _get_max_bytes()
         files = self._iter_files()
         mtimes = {
             str(f.relative_to(self.root)): [f.stat().st_mtime_ns, f.stat().st_size]
@@ -307,8 +306,8 @@ class CodeIndex:
                         hybrid_alpha = float(os.environ.get("SICK_HYBRID_ALPHA", "0.7"))
                     except ValueError:
                         hybrid_alpha = 0.7
-                    scores = [hybrid_alpha * c + (1 - hybrid_alpha) * l for c, l in zip(cos, lex_n)]
-                    scored = [Hit(c, s) for c, s in zip(self.chunks, scores) if s > 0]
+                    scores = [hybrid_alpha * c + (1 - hybrid_alpha) * lex for c, lex in zip(cos, lex_n, strict=True)]
+                    scored = [Hit(c, s) for c, s in zip(self.chunks, scores, strict=True) if s > 0]
                     scored.sort(key=lambda h: h.score, reverse=True)
                     return scored[:k]
             except Exception:

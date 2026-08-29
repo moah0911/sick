@@ -1,14 +1,17 @@
 """Sick LSP server — pygls stdio/tcp, hover via CodeResearch."""
 import re
 from pathlib import Path
+
 try:
-    from pygls.server import LanguageServer
     from lsprotocol import types as lsp
+    from pygls.server import LanguageServer
 except Exception:
     LanguageServer = None
     lsp = None
 from sick.config import load_config
 from sick.tools.research import CodeIndex
+
+
 def _get_word(line: str, col: int) -> str:
     m = re.findall(r"\w+", line)
     pos = 0
