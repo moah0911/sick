@@ -54,19 +54,35 @@ excluded = ["vendor"]      # extra dirs to skip in search/research
 is writable, the rest of the filesystem is read-only, and there is no
 network. Falls back to normal bash with a warning if `bwrap` is not installed.
 
-## TUI
+## TUI — complete
 
 ```
 uv run sick
 ```
 
-- `@file` — attach a file (PDFs parsed into Markdown via Docling)
-- `!cmd` — run a shell command; the output is shown and fed to the agent
-- `/visual <topic>` — make an explanatory video with Remotion
-- `/plan <task>` / `/approve` / `/reject` — approve-then-execute workflow
-- `/audit [n]` — last N tool calls; `/stats` — session usage
-- `/help`, `/clear`, `/models`, `/exit`
-- `ctrl+x h/c/q` — help / clear / quit
+- `@file` / `@"file with spaces"` — attach files (PDFs via Docling), deduped, `300k` total cap, `100k` per file
+- `!cmd` — bash with sandbox, exit-code coloring, truncation notice, `ctrl+c` interrupt, `!` history `up/down`
+- `/help` — all slash commands + bindings; fuzzy suggest for typos (`/hepl` → `/help`)
+- `/clear` `new` — clear chat (audit kept); `/audit [n]` last N with args; `/stats` turns/tools; `/models` provider
+- `/plan <task>` / `/approve` / `/reject` — plan workflow, `pending_task` shown
+- `/checkpoint [msg]` / `/restore [n]` / `/checkpoints` — git `sick-checkpoints` branch
+- `/version` — `0.1.0` + model; `/visual <topic>` remotion; `Footer` + `Header` clock + `LoadingIndicator` + `max_lines=2000`
+- Bindings: `ctrl+q` quit, `ctrl+c` interrupt, `ctrl+l` clear, `f1` help, `ctrl+x,space` focus, `pageup/pagedown/home/end` scroll, `up/down` history
+- Suggester: `/` commands + `@` files (workspace-aware, `EXCLUDED_DIRS` filtered)
+
+### Custom commands
+
+Add prompt files `.sick/commands/<name>.md` (workspace) or `~/.sick/commands/*.md` (global):
+
+```markdown
+---
+description: review code with tests
+---
+Review $ARGUMENTS via code_research and grep, propose plan, run pytest, keep diff minimal.
+```
+
+- `$ARGUMENTS` / `{{args}}` / `$1` replaced with args, appears in `/help`, dispatch via `app._send`.
+- Example: `.sick/commands/review.md`, `.sick/commands/commit.md` → `/review file.py`, `/commit "fix auth"`
 
 ## Attach PDFs
 

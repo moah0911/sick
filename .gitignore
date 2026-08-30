@@ -12,6 +12,8 @@ wheels/
 # Testing
 .pytest_cache/
 .sick/
+.coverage
+htmlcov/
 
 # Environment
 .env
