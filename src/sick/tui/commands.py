@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import json
+import re
+import shlex
+import subprocess
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -27,6 +31,7 @@ class HelpCommand(SlashCommand):
         for cmd in app.commands.canonical:
             names = " ".join([f"/{cmd.name}"] + [f"/{a}" for a in cmd.aliases])
             lines.append(f"- `{names}` — {cmd.hint}")
+        lines.append("\nUse `!cmd` for shell, `@file` to attach, `$ARGUMENTS`/`$1`/`!` `` `cmd` ``/`@file` in custom prompts")
         return "\n".join(lines)
 
 
@@ -56,7 +61,6 @@ class ModelsCommand(SlashCommand):
     hint = "show the active model/provider"
 
     async def run(self, app: SickApp, args: str) -> str | None:
-        # try provider model_id first, then llm internals
         try:
             from sick.providers import detect
 
@@ -170,62 +174,276 @@ class VisualCommand(SlashCommand):
         return f"making a video about: {args}"
 
 
-class PromptCommand(SlashCommand):
-    """User-defined prompt from .sick/commands/*.md — ponytail: text only, no exec."""
+def _expand_template(template: str, args: str, workspace: Path, agent=None) -> str:
+    """Expand $ARGUMENTS, $1..$9, !`shell`, @file — opencode compatible, order args→shell→file."""
+    # 1. args
+    try:
+        tokens = shlex.split(args, posix=True) if args.strip() else []
+    except ValueError:
+        tokens = args.split()
+    out = template
+    # preserve $ARGUMENTS placeholder first
+    out = out.replace("$ARGUMENTS", "__ARG__").replace("{{args}}", "__ARG__").replace("$ARGS", "__ARG__")
+    # $1..$9
+    def _repl_num(m):
+        idx = int(m.group(1))
+        return tokens[idx - 1] if 0 < idx <= len(tokens) else ""
 
-    def __init__(self, name: str, hint: str, template: str):
+    out = re.sub(r"\$([1-9])", _repl_num, out)
+    out = out.replace("__ARG__", args)
+    # 2. shell !`cmd`
+    def _shell(m):
+        cmd = m.group(1).strip()
+        if not cmd:
+            return ""
+        try:
+            # reuse workspace cwd, timeout 10, bounded 20k
+            r = subprocess.run(cmd, shell=True, cwd=workspace, capture_output=True, text=True, timeout=10)
+            txt = (r.stdout + (("\n" + r.stderr) if r.stderr else "")).strip()[:20000] or "(no output)"
+            if r.returncode != 0:
+                txt += f"\n[exit code {r.returncode}]"
+            return txt
+        except subprocess.TimeoutExpired:
+            return "[timed out after 10s]"
+        except Exception as e:
+            return f"[error: {e}]"
+
+    out = re.sub(r"!`([^`]+)`", _shell, out)
+    # 3. file @path — reuse attach logic but inline
+    # dedupe, total cap 300k, per file 100k
+    seen: set[str] = set()
+    total = 0
+    # collect matches before mutating out to avoid re-scanning injected content
+    matches = list(re.finditer(r"(?<!\w)@([^\s,;`]+)", out))
+    # also quoted @"..."
+    matches += list(re.finditer(r'@\"([^\"]+)\"', out))
+    for m in matches:
+        raw = m.group(1).strip().rstrip(",.;: )]`'\"")
+        if not raw or raw in seen:
+            continue
+        seen.add(raw)
+        if total > 300_000:
+            out += f"\n[skipped @ {raw}: total cap reached]"
+            continue
+        try:
+            p = Path(raw).expanduser()
+            if not p.is_absolute():
+                p = (workspace / p).resolve()
+            else:
+                p = p.resolve()
+            if not p.exists() or p.is_dir():
+                out = out.replace(f"@{raw}", f"[attach missing: {raw}]")
+                continue
+            if p.suffix.lower() == ".pdf" and agent:
+                try:
+                    content = agent.parse_pdf(str(p))
+                except Exception as e:
+                    content = f"[unreadable: {e}]"
+            else:
+                content = p.read_text(errors="replace")[:100_000]
+                if len(p.read_text(errors="replace")) > 100_000:
+                    content += "\n[truncated after 100000 bytes]"
+            # avoid re-injecting shell/file in content
+            total += len(content)
+            out = out.replace(f"@{raw}", f"\n--- attached: {p} ---\n{content}")
+            # also replace quoted form
+            out = out.replace(f'@\"{raw}\"', f"\n--- attached: {p} ---\n{content}")
+        except Exception as e:
+            out = out.replace(f"@{raw}", f"[unreadable: {e}]")
+    return out
+
+
+class PromptCommand(SlashCommand):
+    """User-defined prompt from .sick/commands/*.md or opencode.json — opencode compat."""
+
+    def __init__(self, name: str, hint: str, template: str, agent: str = "", subtask: bool = False, model: str = ""):
         self.name = name
-        self.hint = hint
+        self.hint = hint or name
         self.template = template
+        self.agent_hint = agent
+        self.subtask = subtask
+        self.model = model
 
     async def run(self, app: SickApp, args: str) -> str | None:
-        prompt = self.template.replace("$ARGUMENTS", args).replace("{{args}}", args).replace("$1", args)
+        ws = Path(getattr(app.agent, "workspace", Path.cwd()))
+        prompt = _expand_template(self.template, args, ws, app.agent)
         if not prompt.strip():
             return "prompt is empty"
+        # model override
+        prev = None
+        if self.model:
+            try:
+                from sick.providers import detect
+
+                prev = getattr(app.agent, "_llm", None)
+                # try create, but don't crash if key missing
+                try:
+                    app.agent._llm = detect(self.model).create_llm()
+                    app.agent.context["model_override"] = self.model
+                except Exception as e:
+                    prompt = f"[model {self.model} unavailable: {e}]\n{prompt}"
+            except Exception:
+                pass
+        if self.agent_hint:
+            prompt = f"[agent: {self.agent_hint}]\n{prompt}"
+        # subtask = no user bubble
+        if self.subtask:
+            await app.host.submit(prompt)
+            if prev is not None:
+                try:
+                    app.agent._llm = prev
+                except Exception:
+                    pass
+            return f"[{self.name} subtask started]"
         await app._send(prompt, show=True)
+        if prev is not None:
+            try:
+                app.agent._llm = prev
+                app.agent.context.pop("model_override", None)
+            except Exception:
+                pass
         return None
 
 
-def _load_prompt_commands(workspace) -> list[SlashCommand]:
-    from pathlib import Path
+def _parse_frontmatter(raw: str) -> tuple[dict, str]:
+    """Parse --- frontmatter, return (meta, body). Naive but handles opencode keys."""
+    if not raw.startswith("---"):
+        return {}, raw.strip()
+    try:
+        parts = raw.split("---", 2)
+        if len(parts) < 3:
+            return {}, raw.strip()
+        _, fm, rest = parts
+        meta: dict = {}
+        # try yaml if available
+        try:
+            import yaml  # type: ignore
 
+            loaded = yaml.safe_load(fm)
+            if isinstance(loaded, dict):
+                meta = {k.lower(): v for k, v in loaded.items()}
+        except Exception:
+            # fallback naive k: v
+            for line in fm.splitlines():
+                line = line.strip()
+                if not line or ":" not in line or line.startswith("#"):
+                    continue
+                k, v = line.split(":", 1)
+                k = k.strip().lower()
+                v = v.strip().strip('"').strip("'")
+                if k in {"description", "agent", "model", "subtask", "template"}:
+                    meta[k] = v
+        body = rest.strip()
+        # allow template key in frontmatter as alias
+        if "template" in meta and not body:
+            body = str(meta.pop("template"))
+        # coerce subtask bool
+        if "subtask" in meta:
+            v = meta["subtask"]
+            if isinstance(v, str):
+                meta["subtask"] = v.lower() in {"1", "true", "yes", "on"}
+            else:
+                meta["subtask"] = bool(v)
+        return meta, body
+    except Exception:
+        return {}, raw.strip()
+
+
+def _load_json_commands(workspace: Path) -> list[PromptCommand]:
+    cmds: list[PromptCommand] = []
+    candidates = [
+        Path.home() / ".config" / "opencode" / "opencode.json",
+        Path.home() / ".sick" / "opencode.json",
+        workspace / "opencode.json",
+        workspace / ".sick" / "opencode.json",
+        workspace / "sick.json",
+        workspace / ".opencode" / "opencode.json",
+    ]
+    for p in candidates:
+        if not p.is_file():
+            continue
+        try:
+            data = json.loads(p.read_text())
+            block = data.get("command", {})
+            if not isinstance(block, dict):
+                continue
+            for name, cfg in block.items():
+                if not isinstance(cfg, dict):
+                    continue
+                template = cfg.get("template", "")
+                if not template or not isinstance(template, str):
+                    continue
+                cmds.append(
+                    PromptCommand(
+                        name=str(name),
+                        hint=str(cfg.get("description", name)),
+                        template=str(template),
+                        agent=str(cfg.get("agent", "")),
+                        subtask=bool(cfg.get("subtask", False)),
+                        model=str(cfg.get("model", "")),
+                    )
+                )
+        except Exception:
+            continue
+    # also check SickConfig.command from .sick/config.toml
+    try:
+        from sick.config import load_config
+
+        cfg = load_config(workspace)
+        for name, c in (cfg.get("command") or {}).items():
+            if isinstance(c, dict) and c.get("template"):
+                cmds.append(
+                    PromptCommand(
+                        name=str(name),
+                        hint=str(c.get("description", name)),
+                        template=str(c["template"]),
+                        agent=str(c.get("agent", "")),
+                        subtask=bool(c.get("subtask", False)),
+                        model=str(c.get("model", "")),
+                    )
+                )
+            elif isinstance(c, str):
+                cmds.append(PromptCommand(str(name), str(name), str(c)))
+    except Exception:
+        pass
+    return cmds
+
+
+def _load_prompt_commands(workspace) -> list[SlashCommand]:
     cmds: list[SlashCommand] = []
-    search_dirs = []
-    try:
-        if workspace:
-            search_dirs.append(Path(workspace) / ".sick" / "commands")
-    except Exception:
-        pass
-    try:
-        search_dirs.append(Path.home() / ".sick" / "commands")
-    except Exception:
-        pass
+    # 4 md dirs in precedence low→high
+    search_dirs = [
+        Path.home() / ".config" / "opencode" / "commands",
+        Path.home() / ".sick" / "commands",
+        Path(workspace) / ".opencode" / "commands" if workspace else None,
+        Path(workspace) / ".sick" / "commands" if workspace else None,
+    ]
+    # first load JSON (lower precedence than md)
+    for pc in _load_json_commands(Path(workspace) if workspace else Path.cwd()):
+        cmds.append(pc)
     for base in search_dirs:
-        if not base.is_dir():
+        if not base or not base.is_dir():
             continue
         for p in sorted(base.glob("*.md")):
             try:
                 raw = p.read_text(errors="replace")
             except OSError:
                 continue
-            hint = p.stem
-            body = raw.strip()
-            if raw.startswith("---"):
-                try:
-                    _, fm, rest = raw.split("---", 2)
-                    for line in fm.splitlines():
-                        if line.strip().lower().startswith("description:"):
-                            hint = line.split(":", 1)[1].strip().strip('"').strip("'")
-                            break
-                    body = rest.strip()
-                except ValueError:
-                    pass
+            meta, body = _parse_frontmatter(raw)
             if not body:
                 continue
-            # avoid collision with builtins
-            if p.stem in {"help", "clear", "exit", "quit", "q", "models", "audit", "stats", "plan", "approve", "reject", "visual", "checkpoint", "restore", "checkpoints", "version", "theme", "copy", "save"}:
-                continue
-            cmds.append(PromptCommand(p.stem, hint or p.stem, body))
+            hint = str(meta.get("description", p.stem))
+            # allow override of builtins (opencode does)
+            cmds.append(
+                PromptCommand(
+                    p.stem,
+                    hint or p.stem,
+                    body,
+                    agent=str(meta.get("agent", "")),
+                    subtask=bool(meta.get("subtask", False)),
+                    model=str(meta.get("model", "")),
+                )
+            )
     return cmds
 
 
@@ -275,8 +493,6 @@ class SlashCommandRegistry:
     """Registry of slash commands, dispatchable by name or alias."""
 
     def __init__(self, workspace: str | Path | None = None) -> None:
-        from pathlib import Path as _P
-
         self.commands: dict[str, SlashCommand] = {}
         self.canonical: list[SlashCommand] = []
         for cmd in (
@@ -288,14 +504,18 @@ class SlashCommandRegistry:
             self.canonical.append(cmd)
             for alias in cmd.aliases:
                 self.commands[alias] = cmd
-        # custom prompt commands from .sick/commands/*.md (workspace + home)
+        # custom prompt commands — allow override of builtins (opencode parity)
         try:
-            ws = _P(workspace) if workspace else _P.cwd()
+            ws = Path(workspace) if workspace else Path.cwd()
             for pc in _load_prompt_commands(ws):
                 if pc.name in self.commands:
-                    continue
+                    # replace canonical entry
+                    old = self.commands[pc.name]
+                    if old in self.canonical:
+                        self.canonical.remove(old)
                 self.commands[pc.name] = pc
                 self.canonical.append(pc)
+                # also register aliases? prompt commands have no aliases
         except Exception:
             pass
 
@@ -307,7 +527,6 @@ class SlashCommandRegistry:
         args = parts[1] if len(parts) > 1 else ""
         cmd = self.commands.get(name)
         if not cmd:
-            # fuzzy suggest
             try:
                 import difflib
 

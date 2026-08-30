@@ -89,7 +89,30 @@ def main() -> None:
         result = asyncio.run(agent.modify_self(args.modify))
         print(result)
     elif args.task:
-        result = asyncio.run(agent.run(args.task))
+        task = args.task
+        # opencode-like: `sick /my-command args` expands custom command even in CLI one-shot
+        if task.strip().startswith("/"):
+            try:
+                from sick.tui.commands import SlashCommandRegistry, _expand_template, PromptCommand
+
+                reg = SlashCommandRegistry(workspace=workspace)
+                line = task.strip()
+                name = line[1:].split()[0].lower() if len(line) > 1 else ""
+                argstr = line.split(maxsplit=1)[1] if " " in line else ""
+                cmd = reg.commands.get(name)
+                if isinstance(cmd, PromptCommand):
+                    task = _expand_template(cmd.template, argstr, workspace, agent)
+                    # model override for one-shot
+                    if cmd.model:
+                        try:
+                            agent._llm = detect(cmd.model).create_llm()
+                        except Exception:
+                            pass
+                    if cmd.agent_hint:
+                        task = f"[agent: {cmd.agent_hint}]\n{task}"
+            except Exception:
+                pass
+        result = asyncio.run(agent.run(task))
         print(result)
     else:
         from sick.tui import run_tui
