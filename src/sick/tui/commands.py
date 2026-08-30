@@ -169,26 +169,154 @@ class VisualCommand(SlashCommand):
         return f"making a video about: {args}"
 
 
+class PromptCommand(SlashCommand):
+    """User-defined prompt from .sick/commands/*.md — ponytail: text only, no exec."""
+
+    def __init__(self, name: str, hint: str, template: str):
+        self.name = name
+        self.hint = hint
+        self.template = template
+
+    async def run(self, app: SickApp, args: str) -> str | None:
+        prompt = self.template.replace("$ARGUMENTS", args).replace("{{args}}", args).replace("$1", args)
+        if not prompt.strip():
+            return "prompt is empty"
+        await app._send(prompt, show=True)
+        return None
+
+
+def _load_prompt_commands(workspace) -> list[SlashCommand]:
+    from pathlib import Path
+
+    cmds: list[SlashCommand] = []
+    search_dirs = []
+    try:
+        if workspace:
+            search_dirs.append(Path(workspace) / ".sick" / "commands")
+    except Exception:
+        pass
+    try:
+        search_dirs.append(Path.home() / ".sick" / "commands")
+    except Exception:
+        pass
+    for base in search_dirs:
+        if not base.is_dir():
+            continue
+        for p in sorted(base.glob("*.md")):
+            try:
+                raw = p.read_text(errors="replace")
+            except OSError:
+                continue
+            hint = p.stem
+            body = raw.strip()
+            if raw.startswith("---"):
+                try:
+                    _, fm, rest = raw.split("---", 2)
+                    for line in fm.splitlines():
+                        if line.strip().lower().startswith("description:"):
+                            hint = line.split(":", 1)[1].strip().strip('"').strip("'")
+                            break
+                    body = rest.strip()
+                except ValueError:
+                    pass
+            if not body:
+                continue
+            # avoid collision with builtins
+            if p.stem in {"help", "clear", "exit", "quit", "q", "models", "audit", "stats", "plan", "approve", "reject", "visual", "checkpoint", "restore", "checkpoints", "version", "theme", "copy", "save"}:
+                continue
+            cmds.append(PromptCommand(p.stem, hint or p.stem, body))
+    return cmds
+
+
+class CheckpointCommand(SlashCommand):
+    name = "checkpoint"
+    hint = "snapshot workspace to sick-checkpoints branch"
+
+    async def run(self, app: SickApp, args: str) -> str | None:
+        return app.agent.checkpoint(args.strip() or "checkpoint")
+
+
+class RestoreCommand(SlashCommand):
+    name = "restore"
+    hint = "restore workspace n checkpoints back (/restore [n])"
+
+    async def run(self, app: SickApp, args: str) -> str | None:
+        try:
+            n = int(args.strip()) if args.strip() else 1
+        except ValueError:
+            return "usage: /restore [n]"
+        return app.agent.restore(max(1, n))
+
+
+class CheckpointsCommand(SlashCommand):
+    name = "checkpoints"
+    hint = "list sick-checkpoints"
+
+    async def run(self, app: SickApp, args: str) -> str | None:
+        return app.agent.checkpoints()
+
+
+class VersionCommand(SlashCommand):
+    name = "version"
+    hint = "show sick version"
+
+    async def run(self, app: SickApp, args: str) -> str | None:
+        try:
+            from importlib.metadata import version as _v
+
+            v = _v("sick")
+        except Exception:
+            v = "0.1.0"
+        return f"sick {v}"
+
+
 class SlashCommandRegistry:
     """Registry of slash commands, dispatchable by name or alias."""
 
-    def __init__(self) -> None:
+    def __init__(self, workspace: str | Path | None = None) -> None:
+        from pathlib import Path as _P
+
         self.commands: dict[str, SlashCommand] = {}
         self.canonical: list[SlashCommand] = []
         for cmd in (
             HelpCommand(), ClearCommand(), ExitCommand(), ModelsCommand(), VisualCommand(),
             AuditCommand(), StatsCommand(), PlanCommand(), ApproveCommand(), RejectCommand(),
+            CheckpointCommand(), RestoreCommand(), CheckpointsCommand(), VersionCommand(),
         ):
             self.commands[cmd.name] = cmd
             self.canonical.append(cmd)
             for alias in cmd.aliases:
                 self.commands[alias] = cmd
+        # custom prompt commands from .sick/commands/*.md (workspace + home)
+        try:
+            ws = _P(workspace) if workspace else _P.cwd()
+            for pc in _load_prompt_commands(ws):
+                if pc.name in self.commands:
+                    continue
+                self.commands[pc.name] = pc
+                self.canonical.append(pc)
+        except Exception:
+            pass
 
     async def dispatch(self, app: SickApp, line: str) -> str | None:
         parts = line[1:].strip().split(maxsplit=1)
+        if not parts or not parts[0]:
+            return "unknown command — try `/help`"
         name = parts[0].lower()
         args = parts[1] if len(parts) > 1 else ""
         cmd = self.commands.get(name)
         if not cmd:
+            # fuzzy suggest
+            try:
+                import difflib
+
+                sug = difflib.get_close_matches(name, self.commands.keys(), n=1, cutoff=0.6)
+                if sug:
+                    return f"unknown command `/{name}` — did you mean `/{sug[0]}`? try `/help`"
+            except Exception:
+                pass
             return f"unknown command `/{name}` — try `/help`"
-        return await cmd.run(app, args)
+        try:
+            return await cmd.run(app, args)
+        except Exception as e:
+            return f"[error: {e}]"
