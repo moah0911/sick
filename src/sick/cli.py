@@ -93,7 +93,7 @@ def main() -> None:
         # opencode-like: `sick /my-command args` expands custom command even in CLI one-shot
         if task.strip().startswith("/"):
             try:
-                from sick.tui.commands import SlashCommandRegistry, _expand_template, PromptCommand
+                from sick.tui.commands import PromptCommand, SlashCommandRegistry, _expand_template
 
                 reg = SlashCommandRegistry(workspace=workspace)
                 line = task.strip()
