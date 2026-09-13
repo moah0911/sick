@@ -5,7 +5,36 @@ from dotenv import load_dotenv
 from nooa.unifiedllm import UnifiedLLM
 from nooa.unifiedllm.registry import get_llm_client
 
-load_dotenv(override=False)
+
+_ENV_KEYS = (
+    "NVIDIA_API_KEY",
+    "ANTHROPIC_API_KEY",
+    "OPENAI_API_KEY",
+    "SICK_MODEL",
+    "SICK_BASE_URL",
+    "SICK_PROVIDER",
+    "SICK_MEMORY_DIR",
+    "SICK_REMOTION_DIR",
+    "SICK_SANDBOX",
+)
+
+
+def load_env(path=None) -> None:
+    """Load a .env file without letting empty placeholders shadow real values.
+
+    `load_dotenv(override=False)` keeps the first value seen — including "".
+    Empty means unset here, so drop empties after each load.
+    """
+    if path is None:
+        load_dotenv(override=False)
+    else:
+        load_dotenv(path, override=False)
+    for key in _ENV_KEYS:
+        if not os.environ.get(key):
+            os.environ.pop(key, None)
+
+
+load_env()
 
 
 class LLMProvider(ABC):

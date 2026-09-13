@@ -62,6 +62,15 @@ def main() -> None:
     cfg = load_config(workspace)
     model = args.model or cfg["model"] or None
 
+    # .env precedence: exported env > workspace .env > sick install .env.
+    # (providers.py already loaded the cwd .env at import; the install
+    # fallback matters when `sick` runs globally outside the checkout.)
+    from sick.providers import load_env
+
+    load_env(workspace / ".env")
+    if os.environ.get("SICK_ROOT"):
+        load_env(Path(os.environ["SICK_ROOT"]) / ".env")
+
     if args.preflight:
         report, ok = preflight(str(workspace))
         print(report)
@@ -74,8 +83,13 @@ def main() -> None:
         except Exception:
             pass
 
-    provider = detect(model)
-    llm = provider.create_llm()
+    try:
+        provider = detect(model)
+        llm = provider.create_llm()
+    except ValueError as e:
+        print(f"sick: {e}", file=sys.stderr)
+        print("hint: export it, or add it to ./.env (workspace) or the sick checkout's .env", file=sys.stderr)
+        sys.exit(2)
 
     set_default_strategy(CodeActStrategy(config=CodeActConfig(max_iterations=args.max_iterations)))
 

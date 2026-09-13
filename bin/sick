@@ -7,6 +7,7 @@ while [ -L "$SRC" ]; do
   case "$LINK" in /*) SRC="$LINK" ;; *) SRC="$(dirname "$SRC")/$LINK" ;; esac
 done
 ROOT="$(cd "$(dirname "$SRC")/.." && pwd)"
+export SICK_ROOT="$ROOT"
 if command -v uv >/dev/null 2>&1; then
   exec uv run --project "$ROOT" sick "$@"
 else
