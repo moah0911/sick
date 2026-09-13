@@ -1,7 +1,12 @@
 #!/usr/bin/env bash
 # sick — global wake-up shim. Resolves the repo checkout and runs `sick` via uv.
 set -euo pipefail
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SRC="${BASH_SOURCE[0]}"
+while [ -L "$SRC" ]; do
+  LINK="$(readlink "$SRC")"
+  case "$LINK" in /*) SRC="$LINK" ;; *) SRC="$(dirname "$SRC")/$LINK" ;; esac
+done
+ROOT="$(cd "$(dirname "$SRC")/.." && pwd)"
 if command -v uv >/dev/null 2>&1; then
   exec uv run --project "$ROOT" sick "$@"
 else
