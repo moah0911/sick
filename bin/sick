@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# sick — global wake-up shim. Resolves the repo checkout and runs `sick` via uv.
+set -euo pipefail
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+if command -v uv >/dev/null 2>&1; then
+  exec uv run --project "$ROOT" sick "$@"
+else
+  # ponytail: uv fallback, breaks if .venv recreated — reinstall uv to fix
+  exec "$ROOT/.venv/bin/sick" "$@"
+fi

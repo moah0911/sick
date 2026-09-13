@@ -8,7 +8,7 @@ Sick is an object-oriented coding agent that reads, writes, and edits code — a
 
 ```bash
 git clone https://github.com/moah0911/sick.git sick && cd sick
-./install.sh            # uv, deps, .env, preflight
+./install.sh            # uv, deps, .env, `sick` command, preflight
 # optional: ./install.sh --with-video  (remotion skills for /visual)
 
 # Set your API key (or edit .env)
@@ -17,13 +17,13 @@ export NVIDIA_API_KEY="nvapi-..."
 # or: export ANTHROPIC_API_KEY="sk-ant-..."
 
 # Interactive chat (TUI)
-uv run sick
+sick
 
 # One-shot task
-uv run sick "generate a python script to download a github repo's issues"
+sick "generate a python script to download a github repo's issues"
 
 # Health checks before starting work
-uv run sick --preflight
+sick --preflight
 ```
 
 ### Environment
@@ -49,7 +49,7 @@ excluded = ["vendor"]      # extra dirs to skip in search/research
 
 ### Sandbox (beta)
 
-`uv run sick --sandbox` runs every `bash` command inside a
+`sick --sandbox` runs every `bash` command inside a
 [bubblewrap](https://github.com/containers/bubblewrap) sandbox: the workspace
 is writable, the rest of the filesystem is read-only, and there is no
 network. Falls back to normal bash with a warning if `bwrap` is not installed.
@@ -57,7 +57,7 @@ network. Falls back to normal bash with a warning if `bwrap` is not installed.
 ## TUI — complete
 
 ```
-uv run sick
+sick
 ```
 
 - `@file` / `@"file with spaces"` — attach files (PDFs via Docling), deduped, `300k` total cap, `100k` per file
@@ -88,10 +88,10 @@ Review $ARGUMENTS via code_research and grep, propose plan, run pytest, keep dif
 
 ```bash
 # Attach a PDF — Docling parses it into clean Markdown automatically
-uv run sick --attach spec.pdf "implement the login flow from section 3"
+sick --attach spec.pdf "implement the login flow from section 3"
 
 # Multiple attachments
-uv run sick --attach requirements.pdf --attach spec.pdf "build the project"
+sick --attach requirements.pdf --attach spec.pdf "build the project"
 ```
 
 The agent can also parse PDFs mid-task:
@@ -229,7 +229,7 @@ uv sync --group dev
 uv run ruff check src tests
 uv run mypy src
 uv run pytest -q --cov
-uv run sick --preflight
+sick --preflight
 docker build -t sick:local .
 ```
 See `CONTRIBUTING.md`, `ARCHITECTURE.md`, `CHANGELOG.md`.

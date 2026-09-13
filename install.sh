@@ -10,7 +10,7 @@ if ! command -v uv >/dev/null 2>&1; then
   curl -LsSf https://astral.sh/uv/install.sh | sh
   export PATH="$HOME/.local/bin:$PATH"
 fi
-uv python ensure 3.13
+uv python install 3.13
 
 # 2. Dependencies
 log "syncing dependencies"
@@ -32,8 +32,27 @@ if [ "${1:-}" = "--with-video" ]; then
   npx skills add remotion-dev/skills@remotion-best-practices -g -y
 fi
 
-# 5. Health check
-log "running preflight"
-uv run sick --preflight || log "preflight found issues — see the report above"
+# 5. Global `sick` command
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+mkdir -p "$HOME/.local/bin"
+TARGET="$HOME/.local/bin/sick"
+if [ -e "$TARGET" ] && [ ! -L "$TARGET" ]; then
+  log "WARNING: $TARGET exists and is not a symlink — leaving it untouched"
+else
+  ln -sfn "$ROOT/bin/sick" "$TARGET"
+  log "linked $TARGET -> $ROOT/bin/sick"
+fi
+case ":$PATH:" in
+  *":$HOME/.local/bin:"*) ;;
+  *) log "WARNING: ~/.local/bin not on PATH — add: export PATH=\"\$HOME/.local/bin:\$PATH\"" ;;
+esac
 
-log "done. Run: uv run sick"
+# 6. Health check
+log "running preflight"
+if command -v sick >/dev/null 2>&1; then
+  sick --preflight || log "preflight found issues — see the report above"
+else
+  uv run sick --preflight || log "preflight found issues — see the report above"
+fi
+
+log "done. Run: sick"
