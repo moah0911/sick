@@ -1,13 +1,20 @@
-# Sick
+# Sick — Self-Improving Coding Agent
+
+[![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=flat&logo=python&logoColor=white)](https://www.python.org/)
+[![NVIDIA OO-Agents](https://img.shields.io/badge/NVIDIA-OO_Agents-76B900?style=flat&logo=nvidia&logoColor=white)](https://github.com/NVIDIA-NeMo/labs-OO-Agents)
+[![TUI](https://img.shields.io/badge/TUI-interactive-6E56CF?style=flat)](./src/sick/tui/)
+[![License](https://img.shields.io/badge/License-Apache_2.0-green?style=flat)](./LICENSE)
 
 **Self-improving coding agent** built on the [NVIDIA OO Agents Framework](https://github.com/NVIDIA-NeMo/labs-OO-Agents).
+
+> Built by [Boyina Gowtham](https://github.com/moah0911) · AI Engineer × DevRel
 
 Sick is an object-oriented coding agent that reads, writes, and edits code — and modifies its own source to improve over time.
 
 ## Quick Start
 
 ```bash
-git clone <your-repo-url> sick && cd sick
+git clone https://github.com/moah0911/sick.git sick && cd sick
 ./install.sh            # uv, deps, .env, preflight
 # optional: ./install.sh --with-video  (remotion skills for /visual)
 
@@ -193,3 +200,7 @@ src/sick/
 ## Experiments
 
 See `experiments/` for research on self-modification and internet-augmented coding.
+
+## Author
+
+**Boyina Gowtham** — AI Engineer × DevRel · [GitHub](https://github.com/moah0911) · [LinkedIn](https://www.linkedin.com/in/boyinagowtham/) · [Medium](https://thegowtham.medium.com/)
