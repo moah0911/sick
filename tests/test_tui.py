@@ -173,7 +173,7 @@ def test_connect_switches_provider_live(tmp_path, monkeypatch):
         agent = FakeAgent(str(tmp_path))
         app = SickApp(agent)
         out = await app.commands.dispatch(app, "/connect groq")
-        assert "switched to groq" in out and "llama-3.3-70b-versatile" in out
+        assert "switched to groq" in out and "openai/gpt-oss-120b" in out
         assert agent._llm is not None
         out = await app.commands.dispatch(app, "/connect setup")
         assert "--setup" in out

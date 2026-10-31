@@ -111,8 +111,20 @@ def test_detect_groq_explicit_and_defaults(monkeypatch):
     p = detect()
     assert isinstance(p, Groq)
     assert p.name == "groq"
-    assert p.model_id == GROQ_MODEL == "llama-3.3-70b-versatile"
+    assert p.model_id == GROQ_MODEL == "openai/gpt-oss-120b"
     assert p.base_url == GROQ_BASE_URL == "https://api.groq.com/openai/v1"
+
+
+def test_groq_retired_models_migrate_automatically():
+    from sick.providers import Groq
+
+    # Groq shut this down 2026-08-16 (free/developer); saved configs heal
+    assert Groq("llama-3.3-70b-versatile").model_id == "openai/gpt-oss-120b"
+    assert Groq("groq/llama-3.3-70b-versatile").model_id == "openai/gpt-oss-120b"
+    assert Groq("llama-3.1-8b-instant").model_id == "openai/gpt-oss-20b"
+    # current models pass through untouched
+    assert Groq("openai/gpt-oss-120b").model_id == "openai/gpt-oss-120b"
+    assert Groq("moonshotai/kimi-k2-instruct-0905").model_id == "moonshotai/kimi-k2-instruct-0905"
 
 
 def test_groq_create_llm_uses_groq_key_and_base(monkeypatch):
@@ -134,7 +146,7 @@ def test_groq_create_llm_uses_groq_key_and_base(monkeypatch):
     assert captured["api_base"] == "https://api.groq.com/openai/v1"
     # native litellm Groq routing (bare names take the OpenAI-compatible
     # path, which forwards OpenAI-only params Groq rejects)
-    assert captured["model"] == "groq/llama-3.3-70b-versatile"
+    assert captured["model"] == "groq/openai/gpt-oss-120b"
     # NOOA injects prompt_cache_key on every call; Groq must strip it
     assert captured["additional_drop_params"] == ["prompt_cache_key"]
 
@@ -145,7 +157,7 @@ def test_groq_client_config_strips_prompt_cache_key(monkeypatch):
 
     monkeypatch.setenv("GROQ_API_KEY", "gsk-fake")
     llm = Groq().create_llm()
-    assert llm.model == "groq/llama-3.3-70b-versatile"
+    assert llm.model == "groq/openai/gpt-oss-120b"
     assert llm.config["additional_drop_params"] == ["prompt_cache_key"]
 
 
@@ -154,7 +166,7 @@ def test_prompt_cache_key_dropped_from_groq_params():
     from litellm.utils import get_optional_params
 
     optional = get_optional_params(
-        model="groq/llama-3.3-70b-versatile",
+        model="groq/openai/gpt-oss-120b",
         custom_llm_provider="groq",
         prompt_cache_key="agent-1-CodeActStrategy",
         additional_drop_params=["prompt_cache_key"],

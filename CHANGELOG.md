@@ -1,4 +1,7 @@
 # Changelog
+## 0.2.4
+- Fix Groq `model_not_found` turns: Groq shut down `llama-3.3-70b-versatile` for free/developer tiers on 2026-08-16. Default Groq model is now `openai/gpt-oss-120b` (Groq's recommended replacement, 131k context, tool calling), and saved configs naming retired Groq models (`llama-3.3-70b-versatile`, `llama-3.1-70b-versatile`, `llama-3.1-8b-instant`, tool-use preview) migrate to supported replacements automatically in `Groq.__init__` `providers.py`
+
 ## 0.2.3
 - Add missing `mcp` dependency: litellm >=1.106 imports its MCP handler whenever a request carries tools (NOOA CodeAct always does), so fresh `uv tool` installs crashed with `No module named 'mcp'` for any provider. The dev venv's older litellm (1.96.2) masked this in 0.2.2 — the published-wheel isolated smoke test caught it. Includes the 0.2.2 Groq routing fix below.
 

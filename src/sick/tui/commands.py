@@ -547,7 +547,7 @@ class VersionCommand(SlashCommand):
 
             v = _v("sick-agent")
         except Exception:
-            v = "0.2.3"
+            v = "0.2.4"
         return f"sick {v}"
 
 
@@ -806,7 +806,7 @@ class UpdateCommand(SlashCommand):
 
             v = _v("sick-agent")
         except Exception:
-            v = "0.2.3"
+            v = "0.2.4"
         return (
             f"sick {v}\n"
             "update (checkout): `git pull && ./install.sh`\n"

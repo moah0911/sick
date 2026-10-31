@@ -9,7 +9,19 @@ from nooa.unifiedllm import UnifiedLLM
 from nooa.unifiedllm.registry import get_llm_client
 
 GROQ_BASE_URL = "https://api.groq.com/openai/v1"
-GROQ_MODEL = "llama-3.3-70b-versatile"
+# Groq shut down llama-3.3-70b-versatile for free/developer tiers on
+# 2026-08-16; openai/gpt-oss-120b is Groq's recommended replacement
+# (131k context, native tool calling).
+GROQ_MODEL = "openai/gpt-oss-120b"
+# Retired Groq model IDs -> supported replacements. Saved configs naming
+# a retired model are migrated automatically instead of failing turns
+# with model_not_found after a provider-side shutdown.
+GROQ_RETIRED_MODELS = {
+    "llama-3.3-70b-versatile": "openai/gpt-oss-120b",
+    "llama-3.1-70b-versatile": "openai/gpt-oss-120b",
+    "llama3-groq-70b-8192-tool-use-preview": "openai/gpt-oss-120b",
+    "llama-3.1-8b-instant": "openai/gpt-oss-20b",
+}
 
 # provider name -> env var holding its API key (wizard + /connect share this)
 PROVIDER_KEYS = {
@@ -259,7 +271,10 @@ class Groq(OpenAICompatible):
     key_env = "GROQ_API_KEY"
 
     def __init__(self, model: str = GROQ_MODEL, base_url: str | None = GROQ_BASE_URL):
-        super().__init__(model or GROQ_MODEL, base_url or GROQ_BASE_URL)
+        model = model or GROQ_MODEL
+        bare = model.removeprefix("groq/")
+        model = GROQ_RETIRED_MODELS.get(bare, model)
+        super().__init__(model, base_url or GROQ_BASE_URL)
 
     def _client_model(self) -> str:
         # Route via litellm's native Groq provider, not the generic
