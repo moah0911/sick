@@ -356,5 +356,8 @@ def test_preflight_no_project(tmp_path):
     from sick.preflight import preflight
 
     report, ok = preflight(str(tmp_path))
-    assert "import check: FAILED" in report
+    # import check no longer shells out to `uv run` (false FAILED when the uv
+    # cache is read-only/offline); an empty dir still fails overall via
+    # git (not a repo) + pytest (no tests collected)
+    assert "git: not a repository" in report
     assert ok is False
