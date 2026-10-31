@@ -15,9 +15,12 @@ from sick.preflight import preflight
 try:
     from importlib.metadata import version as _pkg_version
 
-    __version__ = _pkg_version("sick")
+    try:
+        __version__ = _pkg_version("sick-agent")
+    except Exception:
+        __version__ = _pkg_version("sick")
 except Exception:
-    __version__ = "0.1.0"
+    __version__ = "0.2.0"
 
 
 def main() -> None:

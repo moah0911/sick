@@ -3316,8 +3316,8 @@ wheels = [
 ]
 
 [[package]]
-name = "sick"
-version = "0.1.0"
+name = "sick-agent"
+version = "0.2.0"
 source = { editable = "." }
 dependencies = [
     { name = "cookiecutter" },

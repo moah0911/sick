@@ -21,6 +21,9 @@ memory.jsonl
 # Runtime data (belongs in ~/.sick, never in the repo)
 memory.jsonl
 
+# Session trajectories (may contain recorded output — never publish)
+trajectory-*.json
+
 # Environment
 .env
 .env.*

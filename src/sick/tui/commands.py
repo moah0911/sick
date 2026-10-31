@@ -545,9 +545,9 @@ class VersionCommand(SlashCommand):
         try:
             from importlib.metadata import version as _v
 
-            v = _v("sick")
+            v = _v("sick-agent")
         except Exception:
-            v = "0.1.0"
+            v = "0.2.0"
         return f"sick {v}"
 
 
@@ -791,9 +791,9 @@ class UpdateCommand(SlashCommand):
         try:
             from importlib.metadata import version as _v
 
-            v = _v("sick")
+            v = _v("sick-agent")
         except Exception:
-            v = "0.1.0"
+            v = "0.2.0"
         return (
             f"sick {v}\n"
             "update (checkout): `git pull && ./install.sh`\n"
