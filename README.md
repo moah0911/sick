@@ -35,10 +35,15 @@ All configuration lives in `.env` (see [`.env.example`](.env.example)):
 
 | Variable | Purpose |
 |----------|---------|
-| `NVIDIA_API_KEY` / `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` | Provider selection (set one) |
+| `NVIDIA_API_KEY` / `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GROQ_API_KEY` | Provider selection (set one) |
 | `SICK_MODEL` | Model override |
-| `SICK_BASE_URL` | Custom OpenAI-compatible endpoint |
-| `SICK_PROVIDER` | Force `nvidia`/`anthropic`/`openai` when multiple keys set |
+| `SICK_BASE_URL` | Custom OpenAI-compatible endpoint (Groq's is built in) |
+| `SICK_PROVIDER` | Force `nvidia`/`anthropic`/`openai`/`groq` when multiple keys set |
+
+Change provider or key any time with `sick --setup` (hidden key entry, works
+even when already configured) or switch live between saved providers in the
+TUI with `/connect groq|openai|nvidia|anthropic` — no restart, and stale
+endpoints/models from the previous provider are cleared automatically.
 | `SICK_MEMORY_DIR` | Experience memory location (default `~/.sick`) |
 | `SICK_REMOTION_DIR` | Remotion skill location (default `~/.agents/skills`) |
 | `SICK_SANDBOX` | `1` to force bash sandboxing |

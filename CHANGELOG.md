@@ -1,4 +1,9 @@
 # Changelog
+## 0.2.1
+- Fix "cannot change API key after first setup": new `sick --setup` re-runs the provider wizard any time; `/connect <provider>` switches live between saved providers (hot-swapped LLM, no restart); provider saves/switches clear stale `SICK_BASE_URL`/`SICK_MODEL` so the old endpoint/model cannot leak across a switch `providers.py`, `cli.py`, `agent.py`, `tui/commands.py`
+- Add Groq as a first-class provider (`GROQ_API_KEY`, `SICK_PROVIDER=groq`, built-in `https://api.groq.com/openai/v1` + `llama-3.3-70b-versatile`); legacy OpenAI-key + Groq base-URL configs still detect as Groq
+- Tests: +6 (Groq detect/client/save/wizard, /connect hot-swap, stale-model clearing)
+
 ## Unreleased
 - Real SDLC: `sick.lifecycle` evidence-gated runs (phases observed from tool results, risk-tiered delivery gates, `.sick/runs/<id>/` artifacts, `/run` command, `/plan`→`/approve` backed by run state); `handle()` no longer records unconditional success — unverified edits record `blocked` `lifecycle.py`, `agent.py`, `tui/commands.py`, `cli.py` (exit 3 when blocked)
 - Real OO seam: every tool returns typed `ToolResult`, dispatched via `ToolRegistry` (audit/counts/lifecycle in one place); removed `isinstance` output-sniffing in `agent._call`, fixed private leaks (`registry.set_sandboxed()`, `registry.counts()`), removed duplicate `_register_discovered_skills` `tools/base.py`, `tools/registry.py`, all `tools/*.py`

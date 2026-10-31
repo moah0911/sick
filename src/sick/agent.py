@@ -272,6 +272,37 @@ class SickAgent(InteractiveAgent):
         )
         return verdict
 
+    def switch_provider(self, provider: str) -> str:
+        """Switch the active LLM provider live (key must already be saved).
+
+        Persists SICK_PROVIDER via set_active_provider (which also clears
+        stale endpoint/model), recreates the LLM, and hot-swaps it so the
+        running session uses the new provider without a restart.
+        """
+        import os
+
+        from sick.providers import PROVIDER_KEYS, detect, set_active_provider
+
+        provider = provider.strip().lower()
+        if provider not in PROVIDER_KEYS:
+            return f"unknown provider `{provider}` — choose: {', '.join(PROVIDER_KEYS)}"
+        var = PROVIDER_KEYS[provider]
+        if not os.environ.get(var):
+            return f"{var} is not set — run `sick --setup` in a terminal to add the {provider} key (keys are never entered in chat)"
+        set_active_provider(self.workspace / ".env", provider)
+        try:
+            new_llm = detect().create_llm()
+        except Exception as e:
+            return f"saved {provider} as active, but creating its client failed ({e}) — restart sick"
+        # NOOA stores the client under _llm (see PromptCommand); set both spellings
+        self._llm = new_llm  # type: ignore[attr-defined]
+        try:
+            self.llm = new_llm  # type: ignore[attr-defined]
+        except Exception:
+            pass
+        active = detect()
+        return f"switched to {provider}: `{active.model_id}` via {active.name} (live, no restart)"
+
     # ── tool proxy methods (rendered output for the LLM; ToolResult inside) ──
 
     def _call_result(self, tool: str, **kwargs: Any) -> ToolResult:

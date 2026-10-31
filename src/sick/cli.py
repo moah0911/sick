@@ -20,7 +20,7 @@ try:
     except Exception:
         __version__ = _pkg_version("sick")
 except Exception:
-    __version__ = "0.2.0"
+    __version__ = "0.2.1"
 
 
 def main() -> None:
@@ -34,6 +34,7 @@ def main() -> None:
     parser.add_argument("--max-iterations", type=int, default=25, help="CodeAct max iterations")
     parser.add_argument("--sandbox", action="store_true", help="Run bash inside a bwrap sandbox (beta)")
     parser.add_argument("--preflight", action="store_true", help="Run health checks and exit")
+    parser.add_argument("--setup", action="store_true", help="Configure/change the LLM provider + API key (hidden input), then start")
     parser.add_argument("--version", action="version", version=__version__)
     parser.add_argument("--template", choices=["fastapi", "remotion", "cli"], help="Scaffold from template")
     parser.add_argument("--list-templates", action="store_true", help="List available templates")
@@ -86,6 +87,19 @@ def main() -> None:
             enable_tracing(exporters=[exporters.jsonl(str(workspace / ".sick" / "traces"))])  # type: ignore
         except Exception:
             pass
+
+    if args.setup:
+        # Re-runnable setup: change provider/key even when one is already
+        # configured (the first-run wizard below only fires with no key).
+        if not sys.stdin.isatty():
+            print("sick: --setup needs a terminal for hidden key entry.", file=sys.stderr)
+            sys.exit(2)
+        from sick.providers import prompt_for_api_key
+
+        if not prompt_for_api_key(workspace / ".env"):
+            print("sick: setup skipped — keeping the current configuration.", file=sys.stderr)
+            sys.exit(2)
+        load_env(workspace / ".env")
 
     try:
         provider = detect(model)

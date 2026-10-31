@@ -547,7 +547,7 @@ class VersionCommand(SlashCommand):
 
             v = _v("sick-agent")
         except Exception:
-            v = "0.2.0"
+            v = "0.2.1"
         return f"sick {v}"
 
 
@@ -747,13 +747,23 @@ class EditorCommand(SlashCommand):
 
 class ConnectCommand(SlashCommand):
     name = "connect"
-    hint = "show provider connection status"
+    hint = "provider status, or switch live: /connect groq|openai|nvidia|anthropic"
 
     async def run(self, app: SickApp, args: str) -> str | None:
         import os
 
         from sick.providers import PROVIDER_KEYS
 
+        want = args.strip().lower()
+        if want == "setup":
+            return "to add or change a key, exit and run `sick --setup` (hidden input — keys are never entered in chat, where they'd land in the transcript)"
+        if want:
+            if want not in PROVIDER_KEYS:
+                return f"unknown provider `{want}` — choose: {', '.join(PROVIDER_KEYS)}, or `/connect setup`"
+            switch = getattr(app.agent, "switch_provider", None)
+            if switch is None:
+                return "this agent cannot switch providers live — restart sick after editing `.env`"
+            return str(switch(want))
         lines = ["## providers"]
         for provider, var in PROVIDER_KEYS.items():
             lines.append(f"- {var} ({provider}): {'set' if os.environ.get(var) else 'not set'}")
@@ -761,10 +771,13 @@ class ConnectCommand(SlashCommand):
             from sick.providers import detect
 
             prov = detect()
-            lines.append(f"active: `{prov.model_id}` via {prov.name}")
+            base = getattr(prov, "base_url", None)
+            lines.append(f"active: `{prov.model_id}` via {prov.name}" + (f" ({base})" if base else ""))
         except Exception as e:
             lines.append(f"active: none ({e})")
-        lines.append("switch with `SICK_PROVIDER=nvidia|anthropic|openai` or `SICK_MODEL=...` in `.env`")
+        if os.environ.get("SICK_BASE_URL"):
+            lines.append(f"SICK_BASE_URL: {os.environ['SICK_BASE_URL']}")
+        lines.append("switch live with `/connect <provider>` (key must already be saved); add/change keys with `sick --setup`")
         return "\n".join(lines)
 
 
@@ -793,7 +806,7 @@ class UpdateCommand(SlashCommand):
 
             v = _v("sick-agent")
         except Exception:
-            v = "0.2.0"
+            v = "0.2.1"
         return (
             f"sick {v}\n"
             "update (checkout): `git pull && ./install.sh`\n"

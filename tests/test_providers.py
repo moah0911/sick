@@ -57,7 +57,9 @@ def test_save_api_key_upserts_and_protects(tmp_path, monkeypatch):
     save_api_key(env_file, "anthropic", "test-key-123")
     text = env_file.read_text()
     assert "ANTHROPIC_API_KEY=test-key-123" in text
-    assert "SICK_MODEL=my-model" in text  # other entries preserved
+    # SICK_MODEL is cleared on provider save: a stale model from another
+    # provider must not leak into the new provider's client
+    assert "SICK_MODEL" not in text
     assert "SICK_PROVIDER=anthropic" in text
     assert stat.S_IMODE(os.stat(env_file).st_mode) == 0o600
     # saving again replaces, never duplicates
@@ -98,6 +100,63 @@ def test_prompt_for_api_key_skips_cleanly(tmp_path):
         raise EOFError
 
     assert prompt_for_api_key(env_file, input_fn=_eof, secret_fn=lambda _p: "k") is False
+
+
+def test_detect_groq_explicit_and_defaults(monkeypatch):
+    from sick.providers import GROQ_BASE_URL, GROQ_MODEL, Groq
+
+    monkeypatch.setenv("GROQ_API_KEY", "gsk-test")
+    monkeypatch.setenv("SICK_PROVIDER", "groq")
+    monkeypatch.setenv("NVIDIA_API_KEY", "nv-test")
+    p = detect()
+    assert isinstance(p, Groq)
+    assert p.name == "groq"
+    assert p.model_id == GROQ_MODEL == "llama-3.3-70b-versatile"
+    assert p.base_url == GROQ_BASE_URL == "https://api.groq.com/openai/v1"
+
+
+def test_groq_create_llm_uses_groq_key_and_base(monkeypatch):
+    import sick.providers as providers
+
+    captured = {}
+
+    def fake_get(model, **kwargs):
+        captured["model"] = model
+        captured.update(kwargs)
+        return "llm"
+
+    monkeypatch.setattr(providers, "get_llm_client", fake_get)
+    monkeypatch.setenv("GROQ_API_KEY", "gsk-secret")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    out = providers.Groq().create_llm()
+    assert out == "llm"
+    assert captured["api_key"] == "gsk-secret"
+    assert captured["api_base"] == "https://api.groq.com/openai/v1"
+    assert "llama" in captured["model"]
+
+
+def test_save_groq_clears_stale_base_url(tmp_path):
+    from sick.providers import save_provider_config
+
+    env_file = tmp_path / ".env"
+    env_file.write_text("OPENAI_API_KEY=old\nSICK_BASE_URL=https://old.example/v1\nSICK_MODEL=gpt-4o-mini\n")
+    save_provider_config(env_file, "groq", "gsk-new")
+    text = env_file.read_text()
+    assert "GROQ_API_KEY=gsk-new" in text
+    assert "SICK_PROVIDER=groq" in text
+    assert "SICK_BASE_URL" not in text
+    assert "SICK_MODEL" not in text
+    assert "OPENAI_API_KEY=old" in text  # other providers' keys preserved
+
+
+def test_prompt_wizard_selects_groq(tmp_path):
+    from sick.providers import prompt_for_api_key
+
+    env_file = tmp_path / ".env"
+    ok = prompt_for_api_key(env_file, input_fn=lambda _p: "4", secret_fn=lambda _p: "gsk-wiz")
+    assert ok is True
+    text = env_file.read_text()
+    assert "GROQ_API_KEY=gsk-wiz" in text and "SICK_PROVIDER=groq" in text
 
 
 def test_cli_without_key_noninteractive_exits_friendly(tmp_path):

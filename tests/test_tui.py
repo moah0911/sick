@@ -162,6 +162,30 @@ def test_plan_lifecycle_phases(tmp_path):
     asyncio.run(scenario())
 
 
+def test_connect_switches_provider_live(tmp_path, monkeypatch):
+    from sick.tui.app import SickApp
+
+    monkeypatch.setenv("GROQ_API_KEY", "gsk-test")
+    monkeypatch.delenv("SICK_BASE_URL", raising=False)
+    monkeypatch.delenv("SICK_MODEL", raising=False)
+
+    async def scenario():
+        agent = FakeAgent(str(tmp_path))
+        app = SickApp(agent)
+        out = await app.commands.dispatch(app, "/connect groq")
+        assert "switched to groq" in out and "llama-3.3-70b-versatile" in out
+        assert agent._llm is not None
+        out = await app.commands.dispatch(app, "/connect setup")
+        assert "--setup" in out
+        out = await app.commands.dispatch(app, "/connect bogus")
+        assert "unknown provider" in out
+        status = await app.commands.dispatch(app, "/connect")
+        assert "GROQ_API_KEY (groq): set" in status
+        assert "gsk-test" not in status  # key values never shown
+
+    asyncio.run(scenario())
+
+
 def test_stats_command():
     from sick.tui.app import SickApp
 
