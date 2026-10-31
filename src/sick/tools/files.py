@@ -2,22 +2,14 @@ import os
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
-from sick.tools.base import WorkspaceTool
+from sick.tools.base import MAX_READ_BYTES, WorkspaceTool, max_read_bytes
 
-MAX_READ_BYTES = 500_000
-
-
-def _get_limit() -> int:
-    try:
-        v = int(os.environ.get("SICK_MAX_READ_BYTES", str(MAX_READ_BYTES)))
-        return max(10_000, min(10_000_000, v))
-    except ValueError:
-        return MAX_READ_BYTES
+__all__ = ["MAX_READ_BYTES", "ReadFile", "WriteFile", "EditFile"]
 
 
 def _read_text(path: Path) -> tuple[str, bool]:
     """Read a bounded text file, returning its contents and truncation state."""
-    limit = _get_limit()
+    limit = max_read_bytes()
     with path.open("rb") as stream:
         data = stream.read(limit + 1)
     if b"\0" in data:
@@ -60,7 +52,7 @@ class ReadFile(WorkspaceTool):
             lines = lines[:limit]
         result = "".join(lines)
         if truncated:
-            result += f"\n[truncated after {_get_limit()} bytes]"
+            result += f"\n[truncated after {max_read_bytes()} bytes]"
         return result
 
 

@@ -240,8 +240,9 @@ def _expand_template(template: str, args: str, workspace: Path, agent=None) -> s
                 except Exception as e:
                     content = f"[unreadable: {e}]"
             else:
-                content = p.read_text(errors="replace")[:100_000]
-                if len(p.read_text(errors="replace")) > 100_000:
+                raw_text = p.read_text(errors="replace")
+                content = raw_text[:100_000]
+                if len(raw_text) > 100_000:
                     content += "\n[truncated after 100000 bytes]"
             # avoid re-injecting shell/file in content
             total += len(content)

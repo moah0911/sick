@@ -1,4 +1,3 @@
-import os
 import tomllib
 from pathlib import Path
 
@@ -8,13 +7,10 @@ from pydantic import BaseModel, Field, ValidationError, field_validator
 class SickConfig(BaseModel):
     model_config = {"extra": "ignore"}
 
-    workspace: str = "."
     model: str = ""
     excluded: list[str] = Field(default_factory=list)
-    provider: str = ""
-    embedding_model: str = ""
-    embedding_provider: str = "auto"
-    hybrid_alpha: float = 0.7
+    tracing: bool = False
+    command: dict = Field(default_factory=dict)
 
     @field_validator("excluded", mode="before")
     @classmethod
@@ -25,14 +21,6 @@ class SickConfig(BaseModel):
 
 
 DEFAULTS = SickConfig().model_dump()
-
-
-def _max_bytes() -> int:
-    try:
-        v = int(os.environ.get("SICK_MAX_READ_BYTES", "500000"))
-        return max(10_000, min(10_000_000, v))
-    except ValueError:
-        return 500_000
 
 
 def load_config(workspace: str | Path) -> dict:

@@ -1,8 +1,20 @@
+import os
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any
 
 EXCLUDED_DIRS = {"node_modules", "dist", "build", "__pycache__", ".sick", ".venv", ".git", ".pytest_cache", "vendor"}
+
+MAX_READ_BYTES = 500_000
+
+
+def max_read_bytes() -> int:
+    """Bounded file-read size, overridable via SICK_MAX_READ_BYTES."""
+    try:
+        v = int(os.environ.get("SICK_MAX_READ_BYTES", str(MAX_READ_BYTES)))
+        return max(10_000, min(10_000_000, v))
+    except ValueError:
+        return MAX_READ_BYTES
 
 
 class Tool(ABC):

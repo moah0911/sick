@@ -16,7 +16,7 @@ import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-from sick.tools.base import EXCLUDED_DIRS, WorkspaceTool
+from sick.tools.base import EXCLUDED_DIRS, WorkspaceTool, max_read_bytes
 
 try:
     import numpy as np  # type: ignore
@@ -39,7 +39,6 @@ CODE_EXT = {
     ".cpp", ".h", ".hpp", ".rb", ".php", ".sh", ".md", ".toml", ".yaml",
     ".yml", ".json", ".css", ".html", ".sql",
 }
-MAX_FILE_BYTES = 500_000
 CHUNK_LINES = 100
 _IDENT = re.compile(r"[a-z0-9_]+|[A-Z][a-z0-9_]*")
 EMBED_CACHE_VERSION = 1
@@ -47,14 +46,6 @@ EMBED_CACHE_VERSION = 1
 
 def _get_embed_model() -> str | None:
     return os.environ.get("SICK_EMBED_MODEL", "").strip() or None
-
-
-def _get_max_bytes() -> int:
-    try:
-        v = int(os.environ.get("SICK_MAX_READ_BYTES", str(MAX_FILE_BYTES)))
-        return max(10_000, min(10_000_000, v))
-    except ValueError:
-        return MAX_FILE_BYTES
 
 
 def _cosine(a, b) -> float:
@@ -216,7 +207,7 @@ class CodeIndex:
 
     def _iter_files(self) -> list[Path]:
         files = []
-        limit = _get_max_bytes()
+        limit = max_read_bytes()
         for p in self.root.rglob("*"):
             if not p.is_file() or p.suffix not in CODE_EXT:
                 continue
@@ -347,13 +338,6 @@ class CodeIndex:
             if preview.strip():
                 lines.append(f"  ```\n  {preview[:400]}\n  ```")
         return "\n".join(lines)
-
-    def status(self) -> str:
-        emb = f", embeddings: {self.embed_model} ({len(self.embeddings or [])} vectors)" if self.embed_model and self.embeddings else (f", embeddings: {self.embed_model} (no vectors)" if self.embed_model else ", embeddings: disabled")
-        return (
-            f"indexed {len(self.chunks)} chunks from {self.file_count} files "
-            f"({self.build_time:.1f}s, cached at {self._cache_path()}{emb})"
-        )
 
     def _cache_path(self) -> Path:
         return self.root / ".sick" / "indexes" / "code-index.json"

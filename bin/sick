@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# sick — global wake-up shim. Resolves the repo checkout and runs `sick` via uv.
+# sick — global launcher. Resolves the repo checkout and runs the `sick`
+# console script from its venv (fast, offline); falls back to `uv run`
+# when the venv is missing, then to `python -m sick.cli`.
 set -euo pipefail
 SRC="${BASH_SOURCE[0]}"
 while [ -L "$SRC" ]; do
@@ -8,9 +10,10 @@ while [ -L "$SRC" ]; do
 done
 ROOT="$(cd "$(dirname "$SRC")/.." && pwd)"
 export SICK_ROOT="$ROOT"
-if command -v uv >/dev/null 2>&1; then
+if [ -x "$ROOT/.venv/bin/sick" ]; then
+  exec "$ROOT/.venv/bin/sick" "$@"
+elif command -v uv >/dev/null 2>&1; then
   exec uv run --project "$ROOT" sick "$@"
 else
-  # ponytail: uv fallback, breaks if .venv recreated — reinstall uv to fix
-  exec "$ROOT/.venv/bin/sick" "$@"
+  exec python3 -m sick.cli "$@"
 fi

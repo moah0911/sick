@@ -9,7 +9,9 @@ try:
 except Exception:  # pragma: no cover
     portalocker = None  # type: ignore
 
-MEMORY_DIR = Path(os.environ.get("SICK_MEMORY_DIR", Path.home() / ".sick"))
+# ponytail: empty env var means unset (a stray `SICK_MEMORY_DIR=` in .env
+# must not resolve to Path("."), which leaked memory.jsonl into the cwd)
+MEMORY_DIR = Path(os.environ.get("SICK_MEMORY_DIR") or (Path.home() / ".sick"))
 MEMORY_PATH = MEMORY_DIR / "memory.jsonl"
 
 MAX_MEMORY_BYTES = 5_000_000

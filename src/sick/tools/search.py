@@ -1,19 +1,9 @@
 import fnmatch
 import re
 
-from sick.tools.base import WorkspaceTool
+from sick.tools.base import WorkspaceTool, max_read_bytes
 
-MAX_SEARCH_FILE_BYTES = 500_000
 MAX_GREP_RESULTS = 200
-
-
-def _get_max_bytes() -> int:
-    import os
-    try:
-        v = int(os.environ.get("SICK_MAX_READ_BYTES", str(MAX_SEARCH_FILE_BYTES)))
-        return max(10_000, min(10_000_000, v))
-    except ValueError:
-        return MAX_SEARCH_FILE_BYTES
 
 
 def _get_max_results() -> int:
@@ -39,7 +29,7 @@ class Grep(WorkspaceTool):
             return [f"Error: {path} is not a directory"]
 
         results: list[str] = []
-        max_bytes = _get_max_bytes()
+        max_bytes = max_read_bytes()
         max_res = _get_max_results()
         for p in search_root.rglob("*"):
             if not p.is_file() or self.is_ignored(p):

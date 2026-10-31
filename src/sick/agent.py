@@ -34,7 +34,9 @@ Use parse_pdf(path) instead — returns clean Markdown via Docling.
 When a user attaches a PDF, its content is already parsed and in context."""
 
 
-REMOTION_SKILL_DIR = Path(os.environ.get("SICK_REMOTION_DIR", Path.home() / ".agents" / "skills"))
+# ponytail: empty env var means unset (`SICK_REMOTION_DIR=` in .env must not
+# resolve to Path("."), which silently disabled the remotion skills)
+REMOTION_SKILL_DIR = Path(os.environ.get("SICK_REMOTION_DIR") or (Path.home() / ".agents" / "skills"))
 REMOTION_REFERENCE_HINT = (
     "\n\nReference guides (markup, render, captions, maps, studio, saas) live in "
     "~/.agents/skills/remotion-best-practices/ — when a guide is relevant, read it "
@@ -67,10 +69,6 @@ def _get_remotion_prompt() -> str:
         return _load_remotion_skill()
     except Exception:
         return REMOTION_FALLBACK
-
-
-# ponytail: lazy so import doesn't hit filesystem in tests
-REMOTION_PROMPT = ""
 
 
 class _LazyRemotionSkill(Skill):
@@ -187,6 +185,7 @@ class SickAgent(InteractiveAgent):
         self._register_skill(SdlcSkill())
         for skill in self._skills:
             self._register_skill(skill)
+        self._register_discovered_skills()
 
         self._handle_attachments(attachments or [])
 
@@ -197,6 +196,17 @@ class SickAgent(InteractiveAgent):
         setattr(self, attr_name, skill)
         skill.attach(self)
         spec(self, attr_name, hidden=False)
+
+    def _register_discovered_skills(self) -> None:
+        """Index every installed SKILL.md (name + description) for on-demand use."""
+        try:
+            from sick.skills import discover_skills, skills_index_prompt
+
+            self.discovered_skills = discover_skills(self.workspace)
+            if self.discovered_skills:
+                self.context["skills"] = skills_index_prompt(self.discovered_skills)
+        except Exception:
+            self.discovered_skills = []
 
     def _handle_attachments(self, attachments: list[str]) -> None:
         MAX_ATTACH_BYTES = 100_000
@@ -271,6 +281,13 @@ class SickAgent(InteractiveAgent):
 
     def fetch_url(self, url: str) -> str:
         return self._call("fetch_url", url=url)
+
+    def load_skill(self, name: str) -> str:
+        """Load the full instructions of an installed skill by name (see the skills index)."""
+        from sick.skills import load_skill_body
+
+        body = load_skill_body(name, self.workspace)
+        return body if body is not None else f"Error: unknown skill: {name}"
 
     def checkpoint(self, message: str = "checkpoint") -> str:
         return self._call("checkpoint", message=message)

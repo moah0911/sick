@@ -299,6 +299,13 @@ class SickApp(App):
             try:
                 if p.suffix.lower() == ".pdf":
                     content = self.agent.parse_pdf(str(p))
+                    if content.startswith(("Error:", "[error")):
+                        # parse_pdf is workspace-confined; a user-attached PDF
+                        # outside the workspace lands here — say so, don't
+                        # embed the tool error as if it were the document
+                        text += f"\n\n--- attached: {p} ---\n[unreadable: {content}]"
+                        total += len(content)
+                        continue
                 else:
                     # workspace check: allow user-initiated outside, but still bound
                     raw_content = p.read_text(errors="replace")

@@ -162,3 +162,35 @@ def test_audit_command(tmp_path):
 
     out = asyncio.run(scenario())
     assert "write_file" in out
+
+
+def test_tui_pilot_mounts_and_runs_commands(tmp_path):
+    """Full TUI check: mount, /help, custom command, @attach, !bash."""
+    from sick.tui.app import SickApp
+
+    (tmp_path / ".sick" / "commands").mkdir(parents=True)
+    (tmp_path / ".sick" / "commands" / "greet.md").write_text(
+        "---\ndescription: greet someone\n---\nSay hello to $ARGUMENTS\n"
+    )
+    (tmp_path / "notes.txt").write_text("pilot context")
+
+    async def scenario():
+        agent = FakeAgent(str(tmp_path))
+        app = SickApp(agent)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            assert app.chat_view is not None
+            assert app.sick_input is not None
+            help_out = await app.commands.dispatch(app, "/help")
+            assert "/greet" in help_out and "/help" in help_out
+            fuzzy = await app.commands.dispatch(app, "/hepl")
+            assert "did you mean" in fuzzy
+            expanded = app._expand_attachments("read @notes.txt please")
+            assert "pilot context" in expanded
+            await app._handle_input("!echo pilot-bash-ok")
+            deadline = time.time() + 5
+            while not agent.received and time.time() < deadline:
+                await asyncio.sleep(0.05)
+            assert any("pilot-bash-ok" in (r or "") for r in agent.received)
+
+    asyncio.run(scenario())

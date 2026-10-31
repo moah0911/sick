@@ -1,6 +1,7 @@
 import os
 import shutil
 import subprocess
+import sys
 
 
 def _clean_env() -> dict:
@@ -12,8 +13,11 @@ def preflight(workspace: str) -> tuple[str, bool]:
     lines = [f"workspace: {workspace}"]
     ok = True
 
+    # ponytail: import-only check with the current interpreter — instantiating
+    # SickAgent builds the code index (slow) and `uv run` breaks when the uv
+    # cache is read-only or offline
     import_check = subprocess.run(
-        ["uv", "run", "python", "-c", "from sick.agent import SickAgent; SickAgent()"],
+        [sys.executable, "-c", "from sick.agent import SickAgent"],
         capture_output=True,
         text=True,
         cwd=workspace,
@@ -37,8 +41,8 @@ def preflight(workspace: str) -> tuple[str, bool]:
     if shutil.which("uv"):
         try:
             pytest = subprocess.run(
-                ["uv", "run", "pytest", "-q"], capture_output=True, text=True, cwd=workspace,
-                env=_clean_env(), timeout=60,
+                [sys.executable, "-m", "pytest", "-q"], capture_output=True, text=True, cwd=workspace,
+                env=_clean_env(), timeout=120,
             )
             summary = pytest.stdout.strip().splitlines()[-1] if pytest.stdout.strip() else "no tests found"
             if pytest.stderr.strip() and "passed" not in summary and "failed" not in summary:
@@ -108,10 +112,11 @@ def preflight(workspace: str) -> tuple[str, bool]:
         ok = False
     # portalocker
     try:
+        import portalocker  # noqa: F401
 
         lines.append("portalocker: available (locking ready)")
     except Exception:
-        lines.append("portalocker: not installed (fallback to flock)")
+        lines.append("portalocker: not installed (fallback to plain append)")
     # numpy
     try:
         import numpy  # type: ignore

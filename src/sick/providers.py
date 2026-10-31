@@ -5,7 +5,6 @@ from dotenv import load_dotenv
 from nooa.unifiedllm import UnifiedLLM
 from nooa.unifiedllm.registry import get_llm_client
 
-
 _ENV_KEYS = (
     "NVIDIA_API_KEY",
     "ANTHROPIC_API_KEY",

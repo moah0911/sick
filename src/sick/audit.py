@@ -46,6 +46,9 @@ class AuditLog:
             s = str(v) if not isinstance(v, str) else v
             s = re.sub(r"(?i)(api[_-]?key\s*[:=]\s*)([^\s\"']+)", r"\1[REDACTED]", s)
             s = re.sub(r"(?i)(sk-[a-z0-9\-]{10,})", "[REDACTED]", s)
+            # ponytail: bound audit growth — full file contents don't belong in the log
+            if len(s) > 1000:
+                s = s[:1000] + f"…[truncated, {len(s)} chars total]"
             redacted[k] = s
         entry = {
             "t": time.time(),
