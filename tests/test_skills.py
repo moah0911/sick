@@ -42,7 +42,7 @@ def test_workspace_skills_override_global(tmp_path, monkeypatch):
 
 
 def test_skills_index_and_load_body(tmp_path, monkeypatch):
-    from sick.skills import load_skill_body, skills_index_prompt, discover_skills
+    from sick.skills import discover_skills, load_skill_body, skills_index_prompt
 
     _make_skill(tmp_path, "alpha", "Alpha skill", body="ALPHA BODY")
     monkeypatch.setenv("SICK_SKILLS_DIR", str(tmp_path))
