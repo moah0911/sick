@@ -51,9 +51,13 @@ class ExperienceMemory:
             pass
 
     def record(self, exp: Experience) -> None:
-        self._rotate_if_needed()
-        line = json.dumps(asdict(exp), default=str) + "\n"
-        self._path.parent.mkdir(parents=True, exist_ok=True)
+        # best-effort: an unwritable memory store must never crash the agent
+        try:
+            self._rotate_if_needed()
+            line = json.dumps(asdict(exp), default=str) + "\n"
+            self._path.parent.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            return
         if portalocker:
             try:
                 with portalocker.Lock(str(self._path), "a", timeout=5) as f:  # type: ignore
@@ -66,8 +70,11 @@ class ExperienceMemory:
                 return
             except Exception:
                 pass
-        with open(self._path, "a") as f:
-            f.write(line)
+        try:
+            with open(self._path, "a") as f:
+                f.write(line)
+        except OSError:
+            pass
 
     def recall(self, task_type: str, top_k: int = 3) -> list[Experience]:
         if not self._path.exists():

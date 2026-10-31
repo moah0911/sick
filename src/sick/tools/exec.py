@@ -3,7 +3,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from sick.tools.base import WorkspaceTool
+from sick.tools.base import ToolResult, WorkspaceTool
 
 MAX_TIMEOUT_SECONDS = 300
 MAX_OUTPUT_CHARS = 20_000
@@ -51,16 +51,16 @@ class Bash(WorkspaceTool):
         super().__init__(root)
         self.sandboxed = sandboxed
 
-    def execute(self, command: str, timeout: int = 60) -> str:
+    def execute(self, command: str, timeout: int = 60) -> ToolResult:
         if not command.strip():
-            return "[error: command must not be empty]"
+            return ToolResult.failure("[error: command must not be empty]", tool=self.name)
         if isinstance(timeout, bool) or not isinstance(timeout, int) or not 1 <= timeout <= MAX_TIMEOUT_SECONDS:
-            return f"[error: timeout must be between 1 and {MAX_TIMEOUT_SECONDS} seconds]"
+            return ToolResult.failure(f"[error: timeout must be between 1 and {MAX_TIMEOUT_SECONDS} seconds]", tool=self.name)
         prefix = None
         if self.sandboxed:
             prefix = _sandbox_prefix(self.root)
             if prefix is None:
-                return "[error: sandbox requested but bwrap is not installed]"
+                return ToolResult.failure("[error: sandbox requested but bwrap is not installed]", tool=self.name)
             argv = prefix + [command]
         else:
             argv = command
@@ -80,8 +80,10 @@ class Bash(WorkspaceTool):
                 out += f"\n[exit code {r.returncode}]"
             if len(out) > MAX_OUTPUT_CHARS:
                 out = out[:MAX_OUTPUT_CHARS] + f"\n[truncated after {MAX_OUTPUT_CHARS} characters]"
-            return out
+            if r.returncode != 0:
+                return ToolResult.failure(out, output=out, tool=self.name, exit_code=r.returncode)
+            return ToolResult.success(out, tool=self.name, exit_code=r.returncode)
         except subprocess.TimeoutExpired:
-            return f"[timed out after {timeout}s]"
+            return ToolResult.failure(f"[timed out after {timeout}s]", tool=self.name)
         except OSError as e:
-            return f"[error: {e}]"
+            return ToolResult.failure(f"[error: {e}]", tool=self.name)

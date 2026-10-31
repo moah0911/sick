@@ -90,12 +90,22 @@ class SickInput(Input):
     ) -> None:
         super().__init__(
             suggester=CombinedSuggester(agent=agent, commands=commands),
-            placeholder="ask sick — @file to attach, !cmd for bash, /help for commands",
+            placeholder="Message sick…  (/help · @file · !bash)",
             **kwargs,
         )
         self._on_submit_cb = on_submit
         self._history: list[str] = []
         self._hidx: int = -1
+
+    async def _on_key(self, event) -> None:
+        # ctrl+x leader first: when armed, the next key is a command,
+        # never text for the input (see SickApp.handle_leader_key)
+        handler = getattr(self.app, "handle_leader_key", None)
+        if handler is not None and handler(event.key):
+            event.stop()
+            event.prevent_default()
+            return
+        await super()._on_key(event)
 
     def action_submit(self) -> None:
         value = self.value.strip()
@@ -130,4 +140,8 @@ class SickInput(Input):
 
     def set_busy(self, busy: bool) -> None:
         self.disabled = busy
-        self.placeholder = "thinking... (input disabled)" if busy else "ask sick — @file to attach, !cmd for bash, /help for commands"
+        self.placeholder = (
+            "sick is thinking… (ctrl+c to interrupt)"
+            if busy
+            else "Message sick…  (/help · @file · !bash)"
+        )

@@ -22,16 +22,44 @@ class SlashCommand:
         return None
 
 
+_HELP_GROUPS: list[tuple[str, list[str]]] = [
+    ("session", ["clear", "sessions", "compact", "export", "undo", "redo"]),
+    ("work", ["plan", "approve", "reject", "run", "visual", "learn"]),
+    ("git & history", ["checkpoint", "restore", "checkpoints", "audit", "stats"]),
+    ("view & setup", ["models", "details", "thinking", "themes", "connect", "editor", "init", "update", "version", "help", "exit"]),
+]
+
+_KEYMAP = """## keys (ctrl+x leader)
+`ctrl+x h` help · `ctrl+x n` new · `ctrl+x c` compact · `ctrl+x l` learn · `ctrl+x s` sessions
+`ctrl+x u` undo · `ctrl+x r` redo · `ctrl+x e` editor · `ctrl+x x` export · `ctrl+x m` models
+`ctrl+x t` themes · `ctrl+t` next theme · `ctrl+x d` details · `ctrl+x q` quit · `ctrl+c` interrupt
+`ctrl+l` clear · `f1` help · `esc`/`ctrl+x space` focus input · `↑`/`↓` history · `pgup`/`pgdn` scroll"""
+
+
 class HelpCommand(SlashCommand):
     name = "help"
     hint = "show this help"
 
     async def run(self, app: SickApp, args: str) -> str | None:
+        by_name = {c.name: c for c in app.commands.canonical}
+        grouped: set[str] = set()
         lines = ["## commands"]
-        for cmd in app.commands.canonical:
-            names = " ".join([f"/{cmd.name}"] + [f"/{a}" for a in cmd.aliases])
-            lines.append(f"- `{names}` — {cmd.hint}")
-        lines.append("\nUse `!cmd` for shell, `@file` to attach, `$ARGUMENTS`/`$1`/`!` `` `cmd` ``/`@file` in custom prompts")
+        for title, names in _HELP_GROUPS:
+            members = [by_name[n] for n in names if n in by_name]
+            if not members:
+                continue
+            lines.append(f"\n### {title}")
+            for cmd in members:
+                grouped.add(cmd.name)
+                aliases = " ".join(f"/{a}" for a in cmd.aliases)
+                lines.append(f"- `/{cmd.name}`{f' {aliases}' if aliases else ''} — {cmd.hint}")
+        custom = [c for c in app.commands.canonical if c.name not in grouped]
+        if custom:
+            lines.append("\n### custom")
+            for cmd in custom:
+                lines.append(f"- `/{cmd.name}` — {cmd.hint}")
+        lines.append(f"\n{_KEYMAP}")
+        lines.append("\nUse `!cmd` for shell, `@file` to attach; custom prompts support `$ARGUMENTS`/`$1`/`` !`cmd` ``/`@file`")
         return "\n".join(lines)
 
 
@@ -41,7 +69,8 @@ class ClearCommand(SlashCommand):
     hint = "clear the conversation"
 
     async def run(self, app: SickApp, args: str) -> str | None:
-        app.chat_view.clear()
+        if app.chat_view:
+            app.chat_view.clear()
         app.agent.context["user_request"] = ""
         return "conversation cleared"
 
@@ -101,7 +130,7 @@ class StatsCommand(SlashCommand):
     hint = "show turn and tool-call counts for this session"
 
     async def run(self, app: SickApp, args: str) -> str | None:
-        counts = app.agent._tool_counts
+        counts = app.agent.registry.counts() if hasattr(app.agent, 'registry') else {}
         lines = [f"turns: {app.agent.turns}"]
         if counts:
             total = sum(counts.values())
@@ -121,6 +150,11 @@ class PlanCommand(SlashCommand):
         if not args.strip():
             return "usage: /plan <task or description>"
         app.pending_task = args
+        try:
+            run = app.agent.begin_run(args, planned=True)
+            app.agent.context["sdlc_state"] = app.agent.lifecycle.prompt(run)
+        except Exception:
+            pass
         await app._send(
             f"Produce a plan for this task (no execution yet): {args}\n"
             "List the steps, files to touch, and how you will verify. "
@@ -139,6 +173,11 @@ class ApproveCommand(SlashCommand):
             return "nothing pending — start with `/plan <task>`"
         task = app.pending_task
         app.pending_task = None
+        try:
+            if getattr(app.agent, "current_run", None) is not None:
+                app.agent.lifecycle.approve(app.agent.current_run)
+        except Exception:
+            pass
         await app._send(
             f"Execute the plan you produced for: {task}",
             show=False,
@@ -154,7 +193,29 @@ class RejectCommand(SlashCommand):
         if not app.pending_task:
             return "nothing pending"
         app.pending_task = None
+        try:
+            if getattr(app.agent, "current_run", None) is not None:
+                app.agent.lifecycle.cancel(app.agent.current_run)
+        except Exception:
+            pass
         return "plan discarded"
+
+
+class RunCommand(SlashCommand):
+    name = "run"
+    hint = "show the current SDLC run: phase, tier, gate (/run)"
+
+    async def run(self, app: SickApp, args: str) -> str | None:
+        run = getattr(app.agent, "current_run", None)
+        if run is None:
+            return "no SDLC run yet — send a task or start with `/plan <task>`"
+        verdict = app.agent.lifecycle.can_deliver(run)
+        gate = "DELIVERABLE" if verdict.allowed else "BLOCKED: " + "; ".join(verdict.reasons)
+        files = ", ".join(run.changed_files) or "none"
+        return (
+            f"run `{run.id}` · phase `{run.phase.value}` · tier `{run.tier.value}`\n"
+            f"gate: {gate}\nchanged: {files}\nskills: {run.skills or 'none'}\nartifacts: `{run.dir}`"
+        )
 
 
 class VisualCommand(SlashCommand):
@@ -453,7 +514,7 @@ class CheckpointCommand(SlashCommand):
     hint = "snapshot workspace to sick-checkpoints branch"
 
     async def run(self, app: SickApp, args: str) -> str | None:
-        return app.agent.checkpoint(args.strip() or "checkpoint")
+        return str(app.agent.checkpoint(args.strip() or "checkpoint"))
 
 
 class RestoreCommand(SlashCommand):
@@ -465,7 +526,7 @@ class RestoreCommand(SlashCommand):
             n = int(args.strip()) if args.strip() else 1
         except ValueError:
             return "usage: /restore [n]"
-        return app.agent.restore(max(1, n))
+        return str(app.agent.restore(max(1, n)))
 
 
 class CheckpointsCommand(SlashCommand):
@@ -473,7 +534,7 @@ class CheckpointsCommand(SlashCommand):
     hint = "list sick-checkpoints"
 
     async def run(self, app: SickApp, args: str) -> str | None:
-        return app.agent.checkpoints()
+        return str(app.agent.checkpoints())
 
 
 class VersionCommand(SlashCommand):
@@ -490,6 +551,257 @@ class VersionCommand(SlashCommand):
         return f"sick {v}"
 
 
+class LearnCommand(SlashCommand):
+    name = "learn"
+    hint = "learn from this session and improve sick itself (/learn [focus])"
+
+    async def run(self, app: SickApp, args: str) -> str | None:
+        from sick.learn import build_learn_prompt
+
+        focus = args.strip()
+        brief = str(app.agent.learn_brief(focus))
+        await app._send(build_learn_prompt(brief, focus), show=False)
+        return brief + "\n\nself-improvement started — rollback anytime with `/restore`"
+
+
+class UndoCommand(SlashCommand):
+    name = "undo"
+    hint = "undo the last change set (back to the previous checkpoint)"
+
+    async def run(self, app: SickApp, args: str) -> str | None:
+        # snapshot current state first so /redo can return to it
+        snap = app.agent.checkpoint("before-undo")
+        created = snap.startswith("checkpoint created")
+        out = str(app.agent.restore(2 if created else 1))
+        if out.startswith("[error"):
+            return out if "no checkpoints" in out else f"{out} — nothing to undo"
+        app._can_redo = created
+        return f"undid last change set ({out})" + (" — `/redo` to bring it back" if created else "")
+
+
+class RedoCommand(SlashCommand):
+    name = "redo"
+    hint = "redo a change set undone with /undo"
+
+    async def run(self, app: SickApp, args: str) -> str | None:
+        if not getattr(app, "_can_redo", False):
+            return "nothing to redo — use `/undo` first"
+        out = str(app.agent.restore(1))
+        if out.startswith("[error"):
+            return out
+        app._can_redo = False
+        return f"redone ({out})"
+
+
+class CompactCommand(SlashCommand):
+    name = "compact"
+    aliases = ["summarize"]
+    hint = "compact the session into a summary and clear the chat"
+
+    async def run(self, app: SickApp, args: str) -> str | None:
+        from sick.learn import analyze_audit, summarize
+
+        report = analyze_audit(app.agent.audit.entries(50), turns=app.agent.turns)
+        summary = summarize(report, app.agent.memory.recall(""))
+        app.agent.context["compact_summary"] = summary
+        app.transcript = [("sick", f"[compacted session]\n{summary}")]
+        if app.chat_view:
+            app.chat_view.clear()
+        return f"session compacted — summary kept in context:\n{summary}"
+
+
+class ExportCommand(SlashCommand):
+    name = "export"
+    hint = "export the conversation to Markdown (/export [path])"
+
+    async def run(self, app: SickApp, args: str) -> str | None:
+        import time
+
+        ws = Path(getattr(app.agent, "workspace", Path.cwd()))
+        if args.strip():
+            dest = Path(args.strip()).expanduser()
+            if not dest.is_absolute():
+                dest = ws / dest
+        else:
+            dest = ws / ".sick" / "exports" / f"session-{time.strftime('%Y%m%d-%H%M%S')}.md"
+        lines = [f"# sick session — {ws}", ""]
+        for role, text in getattr(app, "transcript", []):
+            lines.append(f"## {role}\n\n{text}\n")
+        if not getattr(app, "transcript", []):
+            counts = app.agent.registry.counts() if hasattr(app.agent, 'registry') else {}
+            stats = ", ".join(f"{k}×{v}" for k, v in sorted(counts.items())) or "no tool calls yet"
+            lines.append(f"## session\n\nturns: {app.agent.turns} · tools: {stats}\n")
+        try:
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_text("\n".join(lines))
+        except OSError as e:
+            return f"[error: export failed: {e}]"
+        return f"exported conversation → {dest}"
+
+
+class InitCommand(SlashCommand):
+    name = "init"
+    hint = "create AGENTS.md + .sick/config.toml for this workspace"
+
+    async def run(self, app: SickApp, args: str) -> str | None:
+        ws = Path(getattr(app.agent, "workspace", Path.cwd()))
+        agents_md = ws / "AGENTS.md"
+        if agents_md.exists():
+            return "AGENTS.md already exists — leaving it untouched (edit it directly)"
+        top = sorted(p.name for p in ws.iterdir() if not p.name.startswith("."))[:20] if ws.is_dir() else []
+        cmds = ", ".join(f"/{c.name}" for c in app.commands.canonical[:12])
+        body = (
+            f"# {ws.name}\n\n"
+            "Project guide for AI coding agents (sick `/init`).\n\n"
+            f"Top-level: {', '.join(top) or '(empty)'}\n\n"
+            "## Working agreements\n\n"
+            "- Shortest correct change; verify with tests after every change.\n"
+            "- sick checkpoints live on the `sick-checkpoints` branch (`/restore` to undo).\n"
+            f"- Useful commands: {cmds}\n"
+        )
+        out = app.agent.write_file("AGENTS.md", body)
+        if out.startswith("Error"):
+            return f"[error: {out}]"
+        cfg = ws / ".sick" / "config.toml"
+        if not cfg.exists():
+            try:
+                cfg.parent.mkdir(parents=True, exist_ok=True)
+                cfg.write_text('# model = "gpt-4o-mini"\n# excluded = ["vendor"]\n')
+            except OSError:
+                pass
+        return "created AGENTS.md (+ .sick/config.toml) — edit it to teach agents this project"
+
+
+class SessionsCommand(SlashCommand):
+    name = "sessions"
+    aliases = ["resume", "continue"]
+    hint = "list checkpoints + recent sessions (restore with /restore [n])"
+
+    async def run(self, app: SickApp, args: str) -> str | None:
+        lines = ["## sessions"]
+        cps = app.agent.checkpoints()
+        lines.append("checkpoints (newest first):")
+        lines.append(cps if not cps.startswith("[error") else "  (none yet — /checkpoint to create one)")
+        recent = app.agent.memory.recall("", top_k=5)
+        if recent:
+            lines.append("recent experience:")
+            lines += [f"- {e.task}: {e.outcome}" for e in recent]
+        lines.append(f"this session: {app.agent.turns} turns · restore with `/restore [n]`")
+        return "\n".join(lines)
+
+
+class DetailsCommand(SlashCommand):
+    name = "details"
+    hint = "toggle verbose tool output"
+
+    async def run(self, app: SickApp, args: str) -> str | None:
+        app.show_details = not getattr(app, "show_details", False)
+        app.agent.context["details"] = "on" if app.show_details else "off"
+        return f"tool details: {'on (full output)' if app.show_details else 'off (truncated)'}"
+
+
+class ThinkingCommand(SlashCommand):
+    name = "thinking"
+    hint = "toggle visibility of reasoning blocks"
+
+    async def run(self, app: SickApp, args: str) -> str | None:
+        app.show_thinking = not getattr(app, "show_thinking", False)
+        app.agent.context["thinking"] = "visible" if app.show_thinking else "hidden"
+        return f"thinking blocks: {'visible' if app.show_thinking else 'hidden'}"
+
+
+class EditorCommand(SlashCommand):
+    name = "editor"
+    hint = "compose a message in $EDITOR"
+
+    async def run(self, app: SickApp, args: str) -> str | None:
+        import os
+        import tempfile
+
+        editor = os.environ.get("EDITOR", "").strip()
+        if not editor:
+            return "EDITOR is not set — e.g. `export EDITOR=vim` or `export EDITOR='code --wait'`"
+        fd, tmp = tempfile.mkstemp(suffix=".md", prefix="sick-msg-")
+        os.close(fd)
+        try:
+            # shlex posix mode eats Windows path backslashes (C:\...)
+            if os.name == "nt":
+                argv = [p.strip('"') for p in shlex.split(editor, posix=False)] + [tmp]
+            else:
+                argv = shlex.split(editor) + [tmp]
+            try:
+                with app.suspend():
+                    subprocess.run(argv, check=False)
+            except Exception:
+                subprocess.run(argv, check=False)
+            content = Path(tmp).read_text(errors="replace").strip()
+        except OSError as e:
+            return f"[error: editor failed: {e}]"
+        finally:
+            Path(tmp).unlink(missing_ok=True)
+        if not content:
+            return "editor closed with no content — nothing sent"
+        await app._send(content)
+        return "sent message composed in editor"
+
+
+class ConnectCommand(SlashCommand):
+    name = "connect"
+    hint = "show provider connection status"
+
+    async def run(self, app: SickApp, args: str) -> str | None:
+        import os
+
+        from sick.providers import PROVIDER_KEYS
+
+        lines = ["## providers"]
+        for provider, var in PROVIDER_KEYS.items():
+            lines.append(f"- {var} ({provider}): {'set' if os.environ.get(var) else 'not set'}")
+        try:
+            from sick.providers import detect
+
+            prov = detect()
+            lines.append(f"active: `{prov.model_id}` via {prov.name}")
+        except Exception as e:
+            lines.append(f"active: none ({e})")
+        lines.append("switch with `SICK_PROVIDER=nvidia|anthropic|openai` or `SICK_MODEL=...` in `.env`")
+        return "\n".join(lines)
+
+
+class ThemesCommand(SlashCommand):
+    name = "themes"
+    hint = "list themes, or switch with /themes <name>"
+
+    async def run(self, app: SickApp, args: str) -> str | None:
+        names = sorted(app.available_themes)
+        want = args.strip()
+        if want:
+            if want not in app.available_themes:
+                return f"unknown theme `{want}` — available: {', '.join(names)}"
+            app.theme = want
+            return f"theme → {want}"
+        return f"theme: {app.theme}\navailable: {', '.join(names)}\nswitch with `/themes <name>`"
+
+
+class UpdateCommand(SlashCommand):
+    name = "update"
+    hint = "show version and how to update sick"
+
+    async def run(self, app: SickApp, args: str) -> str | None:
+        try:
+            from importlib.metadata import version as _v
+
+            v = _v("sick")
+        except Exception:
+            v = "0.1.0"
+        return (
+            f"sick {v}\n"
+            "update (checkout): `git pull && ./install.sh`\n"
+            "update (global): `./install.sh --global`\n"
+            "sick never updates itself without being asked"
+        )
+
+
 class SlashCommandRegistry:
     """Registry of slash commands, dispatchable by name or alias."""
 
@@ -498,8 +810,11 @@ class SlashCommandRegistry:
         self.canonical: list[SlashCommand] = []
         for cmd in (
             HelpCommand(), ClearCommand(), ExitCommand(), ModelsCommand(), VisualCommand(),
-            AuditCommand(), StatsCommand(), PlanCommand(), ApproveCommand(), RejectCommand(),
+            AuditCommand(), StatsCommand(), PlanCommand(), ApproveCommand(), RejectCommand(), RunCommand(),
             CheckpointCommand(), RestoreCommand(), CheckpointsCommand(), VersionCommand(),
+            LearnCommand(), UndoCommand(), RedoCommand(), CompactCommand(), ExportCommand(),
+            InitCommand(), SessionsCommand(), DetailsCommand(), ThinkingCommand(),
+            EditorCommand(), ConnectCommand(), ThemesCommand(), UpdateCommand(),
         ):
             self.commands[cmd.name] = cmd
             self.canonical.append(cmd)

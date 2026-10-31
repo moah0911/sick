@@ -15,6 +15,17 @@ from sick.config import load_config
 from sick.tools.research import CodeIndex
 
 
+def _uri_to_path(uri: str) -> Path:
+    """Convert a file:// URI to a local path (Windows drive-safe)."""
+    from urllib.parse import unquote, urlparse
+    from urllib.request import url2pathname
+
+    parsed = urlparse(uri)
+    if parsed.scheme != "file":
+        return Path(uri)
+    return Path(url2pathname(unquote(parsed.path)))
+
+
 def _get_word(line: str, col: int) -> str:
     m = re.findall(r"\w+", line)
     pos = 0
@@ -45,7 +56,7 @@ def create_server():
     async def did_open(ls, params):
         uri = params.text_document.uri
         try:
-            p = Path(uri.replace("file://", "")).resolve()
+            p = _uri_to_path(uri).resolve()
             rel = p.relative_to(ls.root)
             if ls.index and ls.index._is_ignored(rel):
                 diag = lsp.Diagnostic(range=lsp.Range(start=lsp.Position(line=0, character=0), end=lsp.Position(line=0, character=5)), message=f"sick: excluded path '{rel.parts[0]}' — skipped by index", severity=lsp.DiagnosticSeverity.Hint, source="sick")
@@ -74,12 +85,11 @@ def create_server():
         root = None
         if getattr(params, "workspace_folders", None):
             for f in params.workspace_folders:
-                root = Path(f.uri.replace("file://", ""))
+                root = _uri_to_path(f.uri)
                 break
         if not root:
-            root = Path(getattr(params, "root_path", None) or getattr(params, "root_uri", None) or ".")
-            if isinstance(root, str) and root.startswith("file://"):
-                root = Path(root.replace("file://", ""))
+            raw_root = getattr(params, "root_path", None) or getattr(params, "root_uri", None) or "."
+            root = _uri_to_path(raw_root) if isinstance(raw_root, str) and raw_root.startswith("file://") else Path(raw_root)
         try:
             ls._ensure_index(Path(root))
         except Exception:

@@ -76,6 +76,17 @@ def test_cli_version_and_list_templates():
     assert "fastapi" in r.stdout
 
 
+def test_lsp_uri_to_path_posix_and_windows_shapes():
+    from pathlib import Path
+
+    from sick.lsp.server import _uri_to_path
+
+    assert _uri_to_path("file:///home/u/proj/a.py") == Path("/home/u/proj/a.py")
+    win = _uri_to_path("file:///C:/Users/x/proj/a.py")
+    assert win.name == "a.py" and "Users" in str(win)
+    assert _uri_to_path("plain/relative.py") == Path("plain/relative.py")
+
+
 def test_logging_configure_json_and_console(monkeypatch):
     from sick.logging_conf import configure_logging
 

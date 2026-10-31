@@ -3,7 +3,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-from sick.tools.base import Tool
+from sick.tools.base import Tool, ToolResult
 
 MAX_URL_BYTES = 100_000
 URL_TIMEOUT = 10
@@ -35,18 +35,18 @@ class FetchUrl(Tool):
     name = "fetch_url"
     description = "Fetch a web page (http/https only) as text, bounded to 100KB"
 
-    def execute(self, url: str) -> str:
+    def execute(self, url: str) -> ToolResult:
         raw = str(url).strip()
         if not raw.lower().startswith(("http://", "https://")):
-            return f"[error: only http/https URLs are allowed: {url}]"
+            return ToolResult.failure(f"[error: only http/https URLs are allowed: {url}]", tool=self.name)
         try:
             parsed = urllib.parse.urlparse(raw)
             host = parsed.hostname or ""
             if _is_blocked_host(host):
-                return f"[error: blocked host: {host}]"
+                return ToolResult.failure(f"[error: blocked host: {host}]", tool=self.name)
             # also reject userinfo in url (ssrf via @)
             if parsed.username or parsed.password:
-                return f"[error: URL with credentials not allowed: {url}]"
+                return ToolResult.failure(f"[error: URL with credentials not allowed: {url}]", tool=self.name)
         except Exception:
             pass
         try:
@@ -54,15 +54,15 @@ class FetchUrl(Tool):
             with urllib.request.urlopen(req, timeout=URL_TIMEOUT) as resp:
                 ctype = resp.headers.get("Content-Type", "") if hasattr(resp, "headers") else ""
                 if ctype and not any(x in ctype.lower() for x in ("text", "html", "json", "xml", "javascript")):
-                    return f"[error: unsupported content type: {ctype}]"
+                    return ToolResult.failure(f"[error: unsupported content type: {ctype}]", tool=self.name)
                 data = resp.read(MAX_URL_BYTES + 1)
         except urllib.error.URLError as e:
             reason = getattr(e, "reason", e)
-            return f"[error fetching URL: {reason}]"
+            return ToolResult.failure(f"[error fetching URL: {reason}]", tool=self.name)
         except OSError as e:
-            return f"[error fetching URL: {e}]"
+            return ToolResult.failure(f"[error fetching URL: {e}]", tool=self.name)
         truncated = len(data) > MAX_URL_BYTES
         text = data[:MAX_URL_BYTES].decode("utf-8", errors="replace")
         if truncated:
             text += f"\n[truncated after {MAX_URL_BYTES} bytes]"
-        return text
+        return ToolResult.success(text, tool=self.name)

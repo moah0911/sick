@@ -24,6 +24,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(prog="sick", description="Self-improving coding agent")
     parser.add_argument("task", nargs="?", help="Task to perform")
     parser.add_argument("--modify", help="Self-modification instruction")
+    parser.add_argument("--learn", nargs="?", const="", default=None, help="Learn from the session and improve sick itself [focus]")
     parser.add_argument("--attach", action="append", default=[], help="Attach a file (PDF parsed via Docling)")
     parser.add_argument("--workspace", default=None, help="Project directory to work in (default: .)")
     parser.add_argument("--model", default=None, help="Override the LLM model")
@@ -87,21 +88,57 @@ def main() -> None:
         provider = detect(model)
         llm = provider.create_llm()
     except ValueError as e:
-        print(f"sick: {e}", file=sys.stderr)
-        print("hint: export it, or add it to ./.env (workspace) or the sick checkout's .env", file=sys.stderr)
-        sys.exit(2)
+        # first run on a terminal: offer the setup wizard instead of
+        # telling the user to hand-edit a file they may not know about
+        if sys.stdin.isatty():
+            from sick.providers import prompt_for_api_key
+
+            try:
+                saved = prompt_for_api_key(workspace / ".env")
+            except Exception:
+                saved = False
+            if saved:
+                load_env(workspace / ".env")
+                try:
+                    provider = detect(model)
+                    llm = provider.create_llm()
+                except ValueError:
+                    saved = False
+            if not saved:
+                print("sick: no API key configured — run `sick` again when you have one.", file=sys.stderr)
+                sys.exit(2)
+        else:
+            print(f"sick: {e}", file=sys.stderr)
+            print("hint: run `sick` in a terminal to set up a key, or export NVIDIA_API_KEY / ANTHROPIC_API_KEY / OPENAI_API_KEY", file=sys.stderr)
+            sys.exit(2)
 
     set_default_strategy(CodeActStrategy(config=CodeActConfig(max_iterations=args.max_iterations)))
 
     agent = SickAgent(llm=llm, attachments=args.attach, workspace=workspace)
 
     if args.sandbox or os.environ.get("SICK_SANDBOX") == "1":
-        agent._tools["bash"].sandboxed = True
+        agent.registry.set_sandboxed(True)
         print("sandbox: bash commands will run inside bwrap (beta)", file=sys.stderr)
 
-    if args.modify:
+    if args.learn is not None:
+        from sick.learn import build_learn_prompt
+
+        brief = agent.learn_brief(args.learn)
+        print(brief)
+        agent.begin_run(build_learn_prompt(brief, args.learn), approved=True)
+        result = asyncio.run(agent.run(build_learn_prompt(brief, args.learn)))
+        print(result)
+        verdict = agent.finish_run("learn")
+        if verdict is not None and not verdict.allowed:
+            print(f"SDLC gate: BLOCKED — {'; '.join(verdict.reasons)}", file=sys.stderr)
+    elif args.modify:
+        agent.begin_run(args.modify, approved=True)
         result = asyncio.run(agent.modify_self(args.modify))
         print(result)
+        verdict = agent.finish_run("modify_self")
+        if verdict is not None and not verdict.allowed:
+            print(f"SDLC gate: BLOCKED — {'; '.join(verdict.reasons)}", file=sys.stderr)
+            sys.exit(3)
     elif args.task:
         task = args.task
         # opencode-like: `sick /my-command args` expands custom command even in CLI one-shot
@@ -126,8 +163,14 @@ def main() -> None:
                         task = f"[agent: {cmd.agent_hint}]\n{task}"
             except Exception:
                 pass
+        agent.begin_run(task, approved=True)
         result = asyncio.run(agent.run(task))
         print(result)
+        verdict = agent.finish_run("one-shot task")
+        if verdict is not None and not verdict.allowed:
+            print(f"SDLC gate: BLOCKED — {'; '.join(verdict.reasons)}", file=sys.stderr)
+            print(f"run artifacts: {agent.current_run.dir if agent.current_run else ''}", file=sys.stderr)
+            sys.exit(3)
     else:
         from sick.tui import run_tui
 

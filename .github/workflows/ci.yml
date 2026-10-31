@@ -18,6 +18,21 @@ jobs:
       - run: uv run mypy src --ignore-missing-imports || true
       - run: uv run pytest -q --cov=sick --cov-report=term-missing
       - run: uv run sick --preflight || true
+  windows-smoke:
+    # platform-agnostic subset only: the full suite exercises POSIX shell
+    # behavior (bash tool, .sh editor scripts, symlinks). See WINDOWS.md.
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.13"
+          enable-cache: true
+      - run: uv sync --group dev
+      - run: uv run pytest -q tests/test_providers.py tests/test_learn.py tests/test_skills.py --no-cov
+      - run: uv run sick --version
+      - run: uv run sick --list-templates
   docker:
     runs-on: ubuntu-latest
     needs: test

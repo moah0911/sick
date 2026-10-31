@@ -9,15 +9,18 @@ Sick is an object-oriented coding agent that reads, writes, and edits code — a
 ```bash
 git clone https://github.com/moah0911/sick.git sick && cd sick
 ./install.sh            # uv, deps, .env, `sick` command, preflight
+# or: ./install.sh --global   (uv tool install — `sick` on PATH from anywhere)
 # optional: ./install.sh --with-video  (remotion skills for /visual)
 
-# Set your API key (or edit .env)
-export NVIDIA_API_KEY="nvapi-..."
-# or: export OPENAI_API_KEY="sk-..."
-# or: export ANTHROPIC_API_KEY="sk-ant-..."
+# No key yet? Just run `sick` — the first-run wizard asks for your
+# provider + API key (hidden input) and saves it to .env for next time.
+# Prefer env vars? export NVIDIA_API_KEY / OPENAI_API_KEY / ANTHROPIC_API_KEY.
 
 # Interactive chat (TUI)
 sick
+
+# Windows: .\install.ps1 (or install.bat) — same flow; see WINDOWS.md
+# for the compatibility matrix (WSL recommended for the bwrap sandbox)
 
 # One-shot task
 sick "generate a python script to download a github repo's issues"
@@ -64,10 +67,13 @@ sick
 - `!cmd` — bash with sandbox, exit-code coloring, truncation notice, `ctrl+c` interrupt, `!` history `up/down`
 - `/help` — all slash commands + bindings; fuzzy suggest for typos (`/hepl` → `/help`)
 - `/clear` `new` — clear chat (audit kept); `/audit [n]` last N with args; `/stats` turns/tools; `/models` provider
-- `/plan <task>` / `/approve` / `/reject` — plan workflow, `pending_task` shown
+- `/plan <task>` / `/approve` / `/reject` — plan workflow backed by a real SDLC run (DESIGN → IMPLEMENT), `/run` shows live phase/tier/gate, `pending_task` shown
+- `/learn [focus]` — self-improvement: mines audit + memory for failures, records a lesson, then edits sick's own source (checkpoint first, tests after, `/restore` to roll back); also `sick --learn [focus]`
+- `/undo` / `/redo` — back to the previous checkpoint (current state snapshotted first), `/compact` (`/summarize`), `/export [path]`, `/init`, `/sessions` (`/resume`, `/continue`), `/details`, `/thinking`, `/editor` ($EDITOR), `/connect`, `/themes [name]`, `/update`
 - `/checkpoint [msg]` / `/restore [n]` / `/checkpoints` — git `sick-checkpoints` branch
 - `/version` — `0.1.0` + model; `/visual <topic>` remotion; `Footer` + `Header` clock + `LoadingIndicator` + `max_lines=2000`
-- Bindings: `ctrl+q` quit, `ctrl+c` interrupt, `ctrl+l` clear, `f1` help, `ctrl+x,space` focus, `pageup/pagedown/home/end` scroll, `up/down` history
+- Layout: header (clock) · chat + status sidebar (workspace/branch, model, turns/tools, view state, skills, keys; auto-hides under 90 cols) · status bar · input (border shows `message`, subtitle shows hints) · footer with everyday keys. Custom `sick` theme (dark slate, green/amber); `ctrl+t` cycles themes, `/themes <name>` switches
+- Keymap (`ctrl+x` leader): `h` help, `n` new, `c` compact, `l` learn, `s` sessions, `u` undo, `r` redo, `e` editor, `x` export, `m` models, `t` themes, `d` details, `q` quit; direct: `ctrl+c` interrupt, `ctrl+l` clear, `f1` help, `esc` focus input, `pageup/pagedown/home/end` scroll, `up/down` history — all listed in `/help`
 - Suggester: `/` commands + `@` files (workspace-aware, `EXCLUDED_DIRS` filtered)
 
 ### Custom commands
@@ -107,7 +113,35 @@ result = agent.parse_pdf("docs/report.pdf")
 | **ponytail** (always) | Lazy-first philosophy: shortest correct solution, no over-engineering | Always active |
 | **PDF handling** | Parse PDFs via Docling — clean Markdown, not raw binary | Always active |
 | **Remotion** | Create explanatory videos: Remotion scaffold, markup, render | Always active |
-| **SDLC & OO** | Lightweight SDLC phases (requirements → design → implement → verify), OO where it earns its keep | Always active |
+| **SDLC & OO** | Runtime-enforced lifecycle (`sick.lifecycle`): phases observed from tool results, delivery blocked without post-edit verification evidence; OO via `ToolResult`/`ToolRegistry` deep modules | Always active |
+| **Installed skills** | Every `SKILL.md` under `~/.agents/skills`, `~/.sick/skills`, `.sick/skills` is indexed (name + description) in context; full body loaded on demand via `load_skill(name)` | Auto-discovered |
+
+## SDLC that is actually enforced
+
+Most agents *prompt* the model to follow a process. Sick's host process
+enforces one (`src/sick/lifecycle.py`, see `docs/adr/0001-evidence-gated-sdlc.md`):
+
+- Every task is a **Run** with phases observed from real tool results:
+  exploration → `design`, file mutation → `implement`, a passing
+  test/lint command *after the last edit* → `verify`.
+- **Delivery is gated in code, not in a prompt.** A standard run with
+  edits but no post-edit verification evidence ends `BLOCKED`, and the
+  experience is recorded as `blocked` — never `success`. Risky runs
+  (self-modification, auth/migrations, >5 files) additionally require
+  `/plan` → `/approve` and a checkpoint in the TUI (CLI invocation
+  itself counts as approval). Trivial tasks fast-path.
+- Every run leaves auditable artifacts in `.sick/runs/<id>/`:
+  `requirements.md`, `design.md`, `plan.md`, `verification.json`,
+  `summary.md`. `/run` shows the live phase, tier, and gate reasons.
+- Changed Python files get AST design checks: duplicate top-level
+  definitions block delivery; oversized classes and private-attribute
+  access are recorded in `verification.json`.
+- Phases route installed skills automatically (design →
+  `codebase-design`, verify → `tdd`, ...); every tool returns one
+  typed `ToolResult` through `ToolRegistry` — no output-string sniffing.
+
+Proof, no LLM needed: `uv run python demos/sdlc_gate.py` — an unverified
+edit is blocked, a verified edit delivers, artifacts are listed.
 
 ## Explainer videos
 
@@ -170,7 +204,7 @@ each requested inclusive range to Markdown through Docling.
 | No memory across sessions | `ExperienceMemory` recall in every prompt |
 | Setup friction / provider confusion | `./install.sh` + `.env.example` + auto-detection across 3 providers |
 | No verification loop | "Run tests after every change" baked in; `sick --preflight` health checks |
-| Agents over-engineer or drift off-task | Always-on ponytail + SDLC/OO skills in context |
+| Agents over-engineer or drift off-task | Always-on ponytail + runtime SDLC gate (`sick.lifecycle`) that blocks unverified delivery |
 | Can't use PDFs/docs in context | Docling `parse_pdf` + auto-parsed `@file` attachments |
 | Outputs are code-only | `/visual` — Remotion explainer videos as a deliverable |
 | Not self-improving | `self_read`/`self_write` rooted at `src/sick/`, `--modify` flow with test verification |
@@ -184,14 +218,18 @@ Experiences are stored in `~/.sick/memory.jsonl`. The agent recalls past pattern
 ```
 src/sick/
 ├── agent.py          # SickAgent — composes tools + skills + memory
+├── lifecycle.py      # Evidence-gated SDLC: phases, risk tiers, delivery gates, run artifacts
+├── design_check.py   # AST OO/design checks over changed files
 ├── audit.py          # JSONL audit log of every tool call
 ├── cli.py            # CLI entry point (run, modify, preflight, sandbox)
 ├── config.py         # .sick/config.toml loader
 ├── preflight.py      # health checks (import, git, pytest)
+├── skills.py         # SKILL.md discovery + on-demand loading
 ├── providers.py      # LLM providers (NVIDIA, OpenAI, Anthropic)
 ├── memory.py         # Experience memory (JSONL log)
 ├── tools/
-│   ├── base.py       # Tool ABC + workspace boundary
+│   ├── base.py       # Tool ABC + ToolResult + workspace boundary
+│   ├── registry.py   # ToolRegistry — dispatch/audit/counts/lifecycle seam
 │   ├── files.py      # ReadFile, WriteFile, EditFile
 │   ├── exec.py       # Bash (optionally bwrap-sandboxed)
 │   ├── search.py     # Grep, Glob
@@ -215,6 +253,7 @@ uv run python demos/refactor_legacy.py  # grep + edit_file rename across files
 uv run python demos/web_research.py     # fetch_url SSRF + truncation
 uv run python demos/visual_demo.py      # /visual slash + real filesystem scaffold
 uv run python demos/hello.py            # fibonacci + verify
+uv run python demos/sdlc_gate.py        # SDLC gate: unverified edit blocked, verified delivered (no LLM)
 uv run python demos/self_evolve.py      # modify_self ping demo
 ```
 

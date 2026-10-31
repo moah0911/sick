@@ -1,7 +1,7 @@
 import importlib.util
 import re
 
-from sick.tools.base import WorkspaceTool
+from sick.tools.base import ToolResult, WorkspaceTool
 
 _PAGE_RANGE = re.compile(r"(\d+)(?:\s*-\s*(\d+))?$")
 
@@ -30,21 +30,22 @@ class ParsePdf(WorkspaceTool):
     def available(self) -> bool:
         return importlib.util.find_spec("docling") is not None
 
-    def execute(self, path: str) -> str:
+    def execute(self, path: str) -> ToolResult:
         if not self.available():
-            return (
+            return ToolResult.failure(
                 "Docling not installed. Run: uv sync --extra pdf\n"
-                "Docling converts PDFs to clean Markdown — far better than pdftotext or OCR."
+                "Docling converts PDFs to clean Markdown — far better than pdftotext or OCR.",
+                tool=self.name,
             )
         try:
             source = self.resolve_path(path)
             if not source.is_file() or source.suffix.lower() != ".pdf":
-                return f"Error: {path} is not a PDF file in the workspace"
+                return ToolResult.failure(f"Error: {path} is not a PDF file in the workspace", tool=self.name)
             from docling.document_converter import DocumentConverter
             result = DocumentConverter().convert(source)
-            return result.document.export_to_markdown()
+            return ToolResult.success(result.document.export_to_markdown(), tool=self.name)
         except Exception as e:
-            return f"[error parsing PDF: {e}]"
+            return ToolResult.failure(f"[error parsing PDF: {e}]", tool=self.name)
 
     def execute_pages(self, path: str, pages: str) -> str:
         """Parse specific pages. pages='1-5,8'"""

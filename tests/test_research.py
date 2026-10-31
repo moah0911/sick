@@ -75,7 +75,7 @@ def test_index_cache_reuse_and_invalidation():
 def test_code_research_tool_execute():
     tool = CodeResearch(str(_make_repo()))
     out = tool.execute("how does login work")
-    assert "auth.py" in out
+    assert out.ok and "auth.py" in out.output
 
 
 def test_code_research_skips_hidden_and_venv():

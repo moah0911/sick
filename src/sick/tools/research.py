@@ -16,7 +16,7 @@ import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-from sick.tools.base import EXCLUDED_DIRS, WorkspaceTool, max_read_bytes
+from sick.tools.base import EXCLUDED_DIRS, ToolResult, WorkspaceTool, max_read_bytes
 
 try:
     import numpy as np  # type: ignore
@@ -376,5 +376,5 @@ class CodeResearch(WorkspaceTool):
         self.index = CodeIndex(str(self.root))
         self.chunk_count = self.index.build()
 
-    def execute(self, query: str, k: int = 8) -> str:
-        return self.index.research(query, k)
+    def execute(self, query: str, k: int = 8) -> ToolResult:
+        return ToolResult.success(self.index.research(query, k), tool=self.name)

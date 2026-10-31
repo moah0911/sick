@@ -18,6 +18,9 @@ htmlcov/
 # Runtime data (belongs in ~/.sick, never in the repo)
 memory.jsonl
 
+# Runtime data (belongs in ~/.sick, never in the repo)
+memory.jsonl
+
 # Environment
 .env
 .env.*

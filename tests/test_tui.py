@@ -140,6 +140,28 @@ def test_plan_reject_clears_pending():
     asyncio.run(scenario())
 
 
+def test_plan_lifecycle_phases(tmp_path):
+    from sick.lifecycle import Phase
+    from sick.tui.app import SickApp
+
+    async def scenario():
+        agent = FakeAgent(str(tmp_path))
+        app = SickApp(agent)
+        await app.commands.dispatch(app, "/plan add tests")
+        assert agent.current_run is not None
+        assert agent.current_run.phase == Phase.DESIGN
+        assert (tmp_path / ".sick" / "runs" / agent.current_run.id / "plan.md").is_file()
+        await app.commands.dispatch(app, "/approve")
+        assert agent.current_run.phase == Phase.IMPLEMENT
+        out = await app.commands.dispatch(app, "/run")
+        assert "implement" in out and agent.current_run.id in out
+        await app.commands.dispatch(app, "/plan redo it")
+        await app.commands.dispatch(app, "/reject")
+        assert agent.current_run.phase == Phase.CANCELLED
+
+    asyncio.run(scenario())
+
+
 def test_stats_command():
     from sick.tui.app import SickApp
 
@@ -162,6 +184,224 @@ def test_audit_command(tmp_path):
 
     out = asyncio.run(scenario())
     assert "write_file" in out
+
+
+def test_new_commands_registered(tmp_path):
+    from sick.tui.app import SickApp
+
+    app = SickApp(FakeAgent(str(tmp_path)))
+    for name in (
+        "learn", "undo", "redo", "compact", "summarize", "export", "init",
+        "sessions", "resume", "continue", "details", "thinking", "editor",
+        "connect", "themes", "update",
+    ):
+        assert name in app.commands.commands, name
+    help_names = [c.name for c in app.commands.canonical]
+    assert "learn" in help_names and "undo" in help_names
+
+
+def test_learn_command_sends_improvement_prompt(tmp_path):
+    from sick.tui.app import SickApp
+    from sick.tui.host import TurnHost
+
+    async def scenario():
+        agent = FakeAgent(str(tmp_path))
+        host = TurnHost(agent, DummyChat())
+        host.start()
+        app = SickApp(agent)
+        result = await app.commands.dispatch(app, "/learn fix bash timeouts")
+        deadline = time.time() + 5
+        while not agent.received and time.time() < deadline:
+            await asyncio.sleep(0.05)
+        host.stop()
+        assert "learn" in result and "self-improvement started" in result
+        assert agent.received and "checkpoint('pre-learn')" in agent.received[0]
+        assert "fix bash timeouts" in agent.received[0]
+
+    asyncio.run(scenario())
+
+
+def test_compact_export_init_sessions(tmp_path):
+    from sick.tui.app import SickApp
+
+    async def scenario():
+        agent = FakeAgent(str(tmp_path))
+        app = SickApp(agent)
+        app.transcript = [("you", "hello"), ("sick", "hi there")]
+        out = await app.commands.dispatch(app, "/export out.md")
+        assert "exported" in out
+        exported = (tmp_path / "out.md").read_text()
+        assert "hello" in exported and "hi there" in exported
+        out = await app.commands.dispatch(app, "/compact")
+        assert "compacted" in out and "compact_summary" in agent.context
+        out = await app.commands.dispatch(app, "/init")
+        assert "AGENTS.md" in out and (tmp_path / "AGENTS.md").is_file()
+        out = await app.commands.dispatch(app, "/init")
+        assert "already exists" in out
+        out = await app.commands.dispatch(app, "/sessions")
+        assert "sessions" in out and "turns" in out
+
+    asyncio.run(scenario())
+
+
+def test_details_thinking_connect_themes_update(tmp_path, monkeypatch):
+    from sick.tui.app import SickApp
+
+    async def scenario():
+        app = SickApp(FakeAgent(str(tmp_path)))
+        out = await app.commands.dispatch(app, "/details")
+        assert "on" in out and app.show_details is True
+        out = await app.commands.dispatch(app, "/details")
+        assert "off" in out and app.show_details is False
+        out = await app.commands.dispatch(app, "/thinking")
+        assert "visible" in out and app.show_thinking is True
+        out = await app.commands.dispatch(app, "/connect")
+        assert "providers" in out and "API_KEY" in out
+        assert "sk-" not in out  # never leak key values
+        out = await app.commands.dispatch(app, "/themes")
+        assert "available:" in out
+        out = await app.commands.dispatch(app, "/themes textual-light")
+        assert "textual-light" in out
+        out = await app.commands.dispatch(app, "/themes nope-theme")
+        assert "unknown theme" in out
+        out = await app.commands.dispatch(app, "/update")
+        assert "sick" in out and "install.sh" in out
+
+    asyncio.run(scenario())
+
+
+def test_undo_redo_roundtrip(tmp_path, monkeypatch):
+    import subprocess
+
+    from sick.tui.app import SickApp
+
+    monkeypatch.setenv("GIT_AUTHOR_NAME", "t")
+    monkeypatch.setenv("GIT_AUTHOR_EMAIL", "t@t")
+    monkeypatch.setenv("GIT_COMMITTER_NAME", "t")
+    monkeypatch.setenv("GIT_COMMITTER_EMAIL", "t@t")
+    subprocess.run(["git", "init", "-q", "-b", "main"], cwd=tmp_path, check=True)
+    (tmp_path / "f.txt").write_text("v1")
+    subprocess.run(["git", "add", "-A"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "init"], cwd=tmp_path, check=True)
+
+    async def scenario():
+        agent = FakeAgent(str(tmp_path))
+        app = SickApp(agent)
+        agent.checkpoint("base")
+        agent.write_file("f.txt", "v2")
+        out = await app.commands.dispatch(app, "/undo")
+        assert "undid" in out, out
+        assert (tmp_path / "f.txt").read_text() == "v1"
+        out = await app.commands.dispatch(app, "/redo")
+        assert "redone" in out, out
+        assert (tmp_path / "f.txt").read_text() == "v2"
+        out = await app.commands.dispatch(app, "/redo")
+        assert "nothing to redo" in out
+
+    asyncio.run(scenario())
+
+
+def test_editor_command(tmp_path, monkeypatch):
+    from sick.tui.app import SickApp
+
+    script = tmp_path / "fake-editor.sh"
+    script.write_text('#!/bin/sh\nprintf "hello from editor" > "$1"\n')
+    script.chmod(0o755)
+    monkeypatch.setenv("EDITOR", str(script))
+
+    async def scenario():
+        app = SickApp(FakeAgent(str(tmp_path)))
+        return await app.commands.dispatch(app, "/editor")
+
+    out = asyncio.run(scenario())
+    assert "sent message composed in editor" in out
+
+
+def test_editor_without_editor_env(tmp_path, monkeypatch):
+    from sick.tui.app import SickApp
+
+    monkeypatch.delenv("EDITOR", raising=False)
+
+    async def scenario():
+        app = SickApp(FakeAgent(str(tmp_path)))
+        return await app.commands.dispatch(app, "/editor")
+
+    assert "EDITOR is not set" in asyncio.run(scenario())
+
+
+def test_leader_keys_dispatch_not_typed(tmp_path):
+    """ctrl+x leader: the second key runs a command, never enters the input."""
+    from sick.tui.app import SickApp
+
+    async def scenario():
+        agent = FakeAgent(str(tmp_path))
+        app = SickApp(agent)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            before = len(app.transcript)
+            await pilot.press("ctrl+x", "s")  # sessions
+            await pilot.pause()
+            await asyncio.sleep(0.2)
+            await pilot.pause()
+            assert len(app.transcript) > before  # command ran
+            assert app.sick_input.value == ""  # 's' was not typed
+            await pilot.press("ctrl+x", "l")  # learn
+            deadline = time.time() + 5
+            while not agent.received and time.time() < deadline:
+                await asyncio.sleep(0.05)
+                await pilot.pause()
+            assert agent.received and "checkpoint('pre-learn')" in agent.received[0]
+            assert app.sick_input.value == ""
+
+    asyncio.run(scenario())
+
+
+def test_tui_design_layout_theme_and_keys(tmp_path):
+    """Design check: sick theme, sidebar/statusbar, resize, keypresses."""
+    from sick.tui.app import SickApp
+
+    async def scenario():
+        agent = FakeAgent(str(tmp_path))
+        app = SickApp(agent)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            assert app.theme == "sick"
+            assert app.status_panel is not None and app.status_bar is not None
+            assert app.status_panel.display is True  # wide: sidebar visible
+            panel_text = str(app.status_panel.content)
+            assert "WORKSPACE" in panel_text and "SESSION" in panel_text
+            assert "turns" in str(app.status_bar.content)
+            assert app.chat_view.border_title.startswith("sick")
+            assert app.sick_input.border_title == "message"
+            # /help is grouped + carries the keymap
+            help_out = await app.commands.dispatch(app, "/help")
+            assert "### session" in help_out and "### work" in help_out
+            assert "ctrl+x l" in help_out and "/learn" in help_out
+            # footer advertises the everyday keys; leader map covers the rest
+            footer_keys = {b.description for b in app.BINDINGS}
+            assert {"quit", "clear", "help", "theme"} <= footer_keys
+            assert {"h", "n", "c", "l", "s", "u", "q"} <= set(app.LEADER_KEYS)
+            # real keypresses: ctrl+x h opens help, ctrl+t cycles theme
+            await pilot.press("ctrl+x", "h")
+            await pilot.pause()
+            before = app.theme
+            await pilot.press("ctrl+t")
+            await pilot.pause()
+            assert app.theme != before
+            # /details flips the sidebar view state
+            out = await app.commands.dispatch(app, "/details")
+            assert "on" in out
+            app.refresh_status()
+            assert "details  on" in str(app.status_panel.content)
+            # narrow terminal hides the sidebar, chat keeps the space
+            await pilot.resize_terminal(70, 24)
+            await pilot.pause()
+            assert app.status_panel.display is False
+            await pilot.resize_terminal(120, 40)
+            await pilot.pause()
+            assert app.status_panel.display is True
+
+    asyncio.run(scenario())
 
 
 def test_tui_pilot_mounts_and_runs_commands(tmp_path):

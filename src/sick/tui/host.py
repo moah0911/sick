@@ -53,7 +53,7 @@ class TurnHost:
         self.chat.set_busy(busy)
 
     async def _dispatcher(self) -> None:
-        if "checkpoint" in self.agent._tools:
+        if "checkpoint" in self.agent.registry:
             self.agent._call("checkpoint", message="session start")
         while True:
             try:

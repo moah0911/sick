@@ -12,53 +12,53 @@ from sick.tools.search import Glob, Grep
 def test_read_file():
     t = ReadFile()
     r = t.execute(__file__)
-    assert "test_read_file" in r
+    assert r.ok and "test_read_file" in r.output
 
 
 def test_write_and_read():
     root = Path(tempfile.mkdtemp())
     w = WriteFile(root)
     r = w.execute("test.txt", "hello world")
-    assert r.startswith("Wrote")
+    assert r.ok and r.output.startswith("Wrote")
     r = ReadFile(root).execute("test.txt")
-    assert r == "hello world"
+    assert r.output == "hello world"
 
 
 def test_edit_file():
     root = Path(tempfile.mkdtemp())
     WriteFile(root).execute("test.txt", "hello world")
-    assert EditFile(root).execute("test.txt", "world", "sick")
-    assert ReadFile(root).execute("test.txt") == "hello sick"
+    assert EditFile(root).execute("test.txt", "world", "sick").ok
+    assert ReadFile(root).execute("test.txt").output == "hello sick"
 
 
 def test_edit_file_no_match():
     root = Path(tempfile.mkdtemp())
     WriteFile(root).execute("test.txt", "hello")
-    assert not EditFile(root).execute("test.txt", "nope", "x")
+    assert not EditFile(root).execute("test.txt", "nope", "x").ok
 
 
 def test_bash():
     t = Bash()
     r = t.execute("echo hello")
-    assert "hello" in r
+    assert r.ok and "hello" in r.output
 
 
 def test_bash_failure():
     t = Bash()
     r = t.execute("exit 1")
-    assert "exit code 1" in r
+    assert not r.ok and "exit code 1" in r.output
 
 
 def test_grep():
     t = Grep()
     r = t.execute("def test_grep", path="tests")
-    assert any("test_grep" in line for line in r)
+    assert r.ok and any("test_grep" in line for line in r.output)
 
 
 def test_glob():
     t = Glob()
     r = t.execute("*.py", path="tests")
-    assert len(r) > 0
+    assert r.ok and len(r.output) > 0
 
 
 def test_file_tools_reject_paths_outside_workspace(tmp_path):
@@ -66,9 +66,9 @@ def test_file_tools_reject_paths_outside_workspace(tmp_path):
     outside.write_text("private")
     reader = ReadFile(tmp_path)
 
-    assert "escapes workspace" in reader.execute("../outside.txt")
-    assert "escapes workspace" in WriteFile(tmp_path).execute("../new.txt", "nope")
-    assert not EditFile(tmp_path).execute("../outside.txt", "private", "public")
+    assert "escapes workspace" in reader.execute("../outside.txt").output
+    assert "escapes workspace" in WriteFile(tmp_path).execute("../new.txt", "nope").output
+    assert not EditFile(tmp_path).execute("../outside.txt", "private", "public").ok
     assert outside.read_text() == "private"
 
 
@@ -78,7 +78,7 @@ def test_file_tools_reject_symlink_escaping_workspace(tmp_path):
     link = tmp_path / "link.txt"
     link.symlink_to(outside)
 
-    assert "escapes workspace" in ReadFile(tmp_path).execute("link.txt")
+    assert "escapes workspace" in ReadFile(tmp_path).execute("link.txt").output
 
 
 def test_read_file_honors_ranges_and_truncates_large_files(tmp_path):
@@ -86,17 +86,17 @@ def test_read_file_honors_ranges_and_truncates_large_files(tmp_path):
     path.write_text("one\ntwo\nthree\n")
     reader = ReadFile(tmp_path)
 
-    assert reader.execute("notes.txt", offset=1, limit=1) == "two\n"
-    assert "non-negative" in reader.execute("notes.txt", offset=-1)
+    assert reader.execute("notes.txt", offset=1, limit=1).output == "two\n"
+    assert "non-negative" in reader.execute("notes.txt", offset=-1).output
 
     (tmp_path / "large.txt").write_text("x" * (MAX_READ_BYTES + 1))
-    assert "[truncated after 500000 bytes]" in reader.execute("large.txt")
+    assert "[truncated after 500000 bytes]" in reader.execute("large.txt").output
 
 
 def test_edit_file_requires_a_single_match(tmp_path):
     (tmp_path / "notes.txt").write_text("repeat repeat")
 
-    assert not EditFile(tmp_path).execute("notes.txt", "repeat", "changed")
+    assert not EditFile(tmp_path).execute("notes.txt", "repeat", "changed").ok
     assert (tmp_path / "notes.txt").read_text() == "repeat repeat"
 
 
@@ -107,18 +107,18 @@ def test_search_tools_skip_hidden_binary_and_generated_files(tmp_path):
     (tmp_path / "build" / "generated.py").write_text("needle\n")
     (tmp_path / "binary.bin").write_bytes(b"needle\0")
 
-    assert Grep(tmp_path).execute("needle") == ["visible.py:1: needle"]
-    assert Glob(tmp_path).execute("*.py") == ["visible.py"]
-    assert Grep(tmp_path).execute("[")[0].startswith("Error:")
+    assert Grep(tmp_path).execute("needle").output == ["visible.py:1: needle"]
+    assert Glob(tmp_path).execute("*.py").output == ["visible.py"]
+    assert Grep(tmp_path).execute("[").output[0].startswith("Error:")
 
 
 def test_bash_validates_timeout_and_truncates_output(tmp_path):
     bash = Bash(tmp_path)
 
-    assert "timeout must be" in bash.execute("echo nope", timeout=0)
-    assert "timed out" in bash.execute("sleep 2", timeout=1)
+    assert "timeout must be" in bash.execute("echo nope", timeout=0).output
+    assert "timed out" in bash.execute("sleep 2", timeout=1).output
     out = bash.execute("python -c \"print('x' * 21000)\"")
-    assert "[truncated after 20000 characters]" in out
+    assert "[truncated after 20000 characters]" in out.output
 
 
 def test_parse_pdf_page_ranges_with_mocked_docling(tmp_path, monkeypatch):
@@ -158,9 +158,9 @@ def test_self_tools_stay_within_their_source_root(tmp_path):
     from sick.tools.self import SelfRead, SelfWrite
 
     writer = SelfWrite(tmp_path)
-    assert writer.execute("tool.py", "answer = 42\n").startswith("Wrote")
-    assert "answer = 42" in SelfRead(tmp_path).execute("tool.py")
-    assert "escapes workspace" in SelfRead(tmp_path).execute("../outside.py")
+    assert writer.execute("tool.py", "answer = 42\n").output.startswith("Wrote")
+    assert "answer = 42" in SelfRead(tmp_path).execute("tool.py").output
+    assert "escapes workspace" in SelfRead(tmp_path).execute("../outside.py").output
 
 
 def test_agent_registers_every_advertised_tool():
@@ -228,7 +228,7 @@ def test_parse_pdf_unavailable():
     t = ParsePdf()
     if not t.available():
         r = t.execute("dummy.pdf")
-        assert "not installed" in r or "Docling not" in r
+        assert "not installed" in r.output or "Docling not" in r.output
 
 
 def test_agent_audits_tool_calls(tmp_path):
@@ -278,19 +278,56 @@ def test_git_checkpoint_and_restore(tmp_path, monkeypatch):
     subprocess.run(["git", "commit", "--allow-empty", "-m", "init", "-q"], cwd=tmp_path, check=True)
 
     cp = Checkpoint(tmp_path)
-    assert "no changes" in cp.execute()
+    assert "no changes" in cp.execute().output
     (tmp_path / "a.txt").write_text("v1")
-    assert cp.execute().startswith("checkpoint created")
+    assert cp.execute().output.startswith("checkpoint created")
     (tmp_path / "a.txt").write_text("v2")
-    assert "restored" in Restore(tmp_path).execute()
+    assert "restored" in Restore(tmp_path).execute().output
     assert (tmp_path / "a.txt").read_text() == "v1"
 
 
 def test_git_checkpoint_requires_repo(tmp_path):
     from sick.tools.git import Checkpoint, Restore
 
-    assert "not a git repository" in Checkpoint(tmp_path).execute()
-    assert "not a git repository" in Restore(tmp_path).execute()
+    assert "not a git repository" in Checkpoint(tmp_path).execute().output
+    assert "not a git repository" in Restore(tmp_path).execute().output
+
+
+def test_git_checkpoint_never_commits_to_working_branch(tmp_path, monkeypatch):
+    """Regression: a failed branch switch must abort, not commit on main."""
+    import subprocess
+
+    from sick.tools.git import CHECKPOINT_BRANCH, Checkpoint
+
+    monkeypatch.setenv("GIT_AUTHOR_NAME", "t")
+    monkeypatch.setenv("GIT_AUTHOR_EMAIL", "t@t")
+    monkeypatch.setenv("GIT_COMMITTER_NAME", "t")
+    monkeypatch.setenv("GIT_COMMITTER_EMAIL", "t@t")
+
+    def git(*args):
+        return subprocess.run(["git", *args], cwd=tmp_path, capture_output=True, text=True, check=True)
+
+    git("init", "-q", "-b", "main")
+    (tmp_path / "f.txt").write_text("main v1")
+    git("add", "-A")
+    git("commit", "-q", "-m", "init")
+    # diverged checkpoint branch where f.txt differs
+    git("checkout", "-q", "-b", CHECKPOINT_BRANCH)
+    (tmp_path / "f.txt").write_text("checkpoint v1")
+    git("add", "-A")
+    git("commit", "-q", "-m", "checkpoint base")
+    git("checkout", "-q", "main")
+    main_before = git("rev-parse", "HEAD").stdout.strip()
+    # dirty edit that conflicts with the checkpoint branch version,
+    # so `git checkout sick-checkpoints` must refuse
+    (tmp_path / "f.txt").write_text("dirty conflicting edit")
+
+    out = Checkpoint(tmp_path).execute("should not land on main").output
+
+    assert out.startswith("[error:"), out
+    assert git("rev-parse", "HEAD").stdout.strip() == main_before
+    assert git("rev-parse", "--abbrev-ref", "HEAD").stdout.strip() == "main"
+    assert (tmp_path / "f.txt").read_text() == "dirty conflicting edit"
 
 
 def test_fetch_url_ok(monkeypatch):
@@ -314,14 +351,14 @@ def test_fetch_url_ok(monkeypatch):
         return FakeResp(b"<html>hi</html>")
 
     monkeypatch.setattr("sick.tools.web.urllib.request.urlopen", fake_urlopen)
-    assert "hi" in FetchUrl().execute("https://example.com/x")
+    assert "hi" in FetchUrl().execute("https://example.com/x").output
 
 
 def test_fetch_url_rejects_non_http():
     from sick.tools.web import FetchUrl
 
     out = FetchUrl().execute("file:///etc/passwd")
-    assert "only http/https" in out
+    assert "only http/https" in out.output
 
 
 def test_fetch_url_truncates_oversize(monkeypatch):
@@ -339,7 +376,7 @@ def test_fetch_url_truncates_oversize(monkeypatch):
 
     monkeypatch.setattr("sick.tools.web.urllib.request.urlopen", lambda req, timeout: FakeResp())
     out = FetchUrl().execute("https://example.com/big")
-    assert "[truncated" in out
+    assert "[truncated" in out.output
 
 
 def test_bash_sandbox_requires_bwrap(monkeypatch, tmp_path):
@@ -349,7 +386,7 @@ def test_bash_sandbox_requires_bwrap(monkeypatch, tmp_path):
 
     monkeypatch.setattr(shutil, "which", lambda *a, **k: None)
     out = Bash(tmp_path, sandboxed=True).execute("echo hi")
-    assert "bwrap is not installed" in out
+    assert "bwrap is not installed" in out.output
 
 
 def test_preflight_no_project(tmp_path):

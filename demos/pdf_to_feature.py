@@ -39,7 +39,7 @@ def main() -> None:
     print("write_file -> auth.py created")
     assert "authenticate" in agent.read_file("auth.py")
     # index built at agent init before file existed; rebuild to see new file
-    agent._tools["code_research"].index.build()
+    agent.registry.get("code_research").index.build()
     hits = agent.code_research("token validation")
     print(hits)
     # also verify via grep as fallback (real tool, no cache)

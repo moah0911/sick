@@ -95,5 +95,7 @@ ignore_missing_imports = true
 [tool.hatch.build.targets.wheel]
 packages = ["src/sick"]
 
-[tool.hatch.build.force-include]
+# ponytail: wheel-only — a global force-include rewrites the path inside the
+# sdist too, which then breaks the wheel-from-sdist build (publish CI)
+[tool.hatch.build.targets.wheel.force-include]
 "templates" = "sick/templates"

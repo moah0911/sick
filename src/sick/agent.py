@@ -1,5 +1,4 @@
 import os
-import time
 from pathlib import Path
 from typing import Any
 
@@ -8,12 +7,14 @@ from nooa.interactive import InteractiveAgent, RespondReason, RespondResult
 
 from sick.audit import AuditLog
 from sick.config import load_config
+from sick.lifecycle import Lifecycle, Phase, Run
 from sick.memory import Experience, ExperienceMemory
-from sick.tools.base import Tool
+from sick.tools.base import Tool, ToolResult
 from sick.tools.exec import Bash
 from sick.tools.files import EditFile, ReadFile, WriteFile
 from sick.tools.git import Checkpoint, ListCheckpoints, Restore
 from sick.tools.pdf import ParsePdf
+from sick.tools.registry import ToolRegistry
 from sick.tools.research import CodeResearch
 from sick.tools.search import Glob, Grep
 from sick.tools.self import SelfRead, SelfWrite
@@ -81,14 +82,10 @@ class _LazyRemotionSkill(Skill):
 
 
 SDLC_PROMPT = """## sdlc_and_oo
-- Work in SDLC phases, but keep them lightweight: requirements (what problem,
-  edge cases) -> design (structure, key interfaces) -> implement -> verify
-  (tests) -> summarize. Skip phases that add nothing for the task.
-- Prefer object-oriented structure where it earns its keep: encapsulation,
-  single responsibility, clear boundaries between components. Flat code wins
-  when a class adds nothing.
-- No speculative abstraction (see ponytail): interfaces, factories, and layers
-  only when there is more than one real consumer or variant."""
+SDLC is runtime-enforced by sick.lifecycle (see the live `sdlc_state` context
+block): phases are observed from tool results, and delivery is blocked
+without verification evidence after the last edit. Prefer OO structure where
+it earns its keep (deep modules, small interfaces); flat code wins otherwise."""
 
 
 class PonytailSkill(Skill):
@@ -146,7 +143,6 @@ class SickAgent(InteractiveAgent):
     ):
         super().__init__(**kwargs)
         self.memory = ExperienceMemory()
-        self._tools = {}
         self._skills: list[Skill] = skills or []
         self.workspace = Path(workspace).resolve()
         if not self.workspace.is_dir():
@@ -154,7 +150,11 @@ class SickAgent(InteractiveAgent):
 
         cfg = load_config(self.workspace)
         self.audit = AuditLog(self.workspace)
-        self._tool_counts: dict[str, int] = {}
+        self.lifecycle = Lifecycle(self.workspace)
+        self.current_run: Run | None = None
+        self.registry = ToolRegistry(audit=self.audit, on_result=self._record_lifecycle)
+        self._tools = self.registry.tools
+        self._tool_counts = self.registry.counts()
         self.turns = 0
 
         from sick.tools.base import EXCLUDED_DIRS as _EXCL
@@ -177,7 +177,7 @@ class SickAgent(InteractiveAgent):
             ListCheckpoints(self.workspace),
         ]:
             t.excluded = merged_excluded
-            self._tools[t.name] = t
+            self.registry.register(t)
 
         self._register_skill(PonytailSkill())
         self._register_skill(PDFSkill())
@@ -222,8 +222,9 @@ class SickAgent(InteractiveAgent):
             else:
                 try:
                     # Reuse workspace confinement: try read_file, fallback raw read with bound
-                    content = self._tools["read_file"].execute(path=str(p))
-                    if content.startswith("Error:"):
+                    result = self.registry.call("read_file", path=str(p))
+                    content = str(result.output)
+                    if not result.ok:
                         content = p.read_text(errors="replace")[:MAX_ATTACH_BYTES]
                     else:
                         content = content[:MAX_ATTACH_BYTES]
@@ -233,78 +234,106 @@ class SickAgent(InteractiveAgent):
                 except Exception as e:
                     self.context[f"attachment_{p.stem}"] = f"[unreadable: {e}]"
 
-    # ── tool proxy methods ──
+    # ── lifecycle ──
+
+    def _record_lifecycle(self, result: ToolResult, args: dict) -> None:
+        if self.current_run is not None:
+            self.lifecycle.record(self.current_run, result, args)
+
+    def begin_run(self, task: str, *, planned: bool = False, approved: bool = False) -> Run:
+        """Start an evidence-gated SDLC run and route phase skills.
+
+        `approved=True` is for CLI one-shot/modify/learn invocations: typing
+        the command is the human's approval to execute. Interactive TUI runs
+        leave it False, so RISKY runs there need /plan -> /approve.
+        """
+        run = self.lifecycle.start(task)
+        if planned:
+            self.lifecycle.create_plan(run)
+        if approved:
+            self.lifecycle.approve(run)
+        self.current_run = run
+        for phase in (Phase.REQUIREMENTS, Phase.DESIGN, Phase.VERIFY):
+            routed = self.lifecycle.route_skill(run, phase)
+            if routed:
+                name, body = routed
+                self.context[f"skill_{phase.value}"] = body
+        self.context["sdlc_state"] = self.lifecycle.prompt(run)
+        return run
+
+    def finish_run(self, summary: str = "") -> Any:
+        """Apply the delivery gate to the current run. Returns the verdict."""
+        if self.current_run is None:
+            return None
+        verdict = self.lifecycle.finish(self.current_run, summary)
+        self.context["sdlc_state"] = self.lifecycle.prompt(self.current_run)
+        self.context["sdlc_result"] = (
+            "DELIVERED" if verdict.allowed else "BLOCKED: " + "; ".join(verdict.reasons)
+        )
+        return verdict
+
+    # ── tool proxy methods (rendered output for the LLM; ToolResult inside) ──
+
+    def _call_result(self, tool: str, **kwargs: Any) -> ToolResult:
+        return self.registry.call(tool, **kwargs)
 
     def _call(self, tool: str, **kwargs: Any) -> Any:
-        start = time.monotonic()
-        result = self._tools[tool].execute(**kwargs)
-        # ponytail: type-aware ok detection — bool/list/str each have distinct error shapes
-        if isinstance(result, bool):
-            ok = result
-        elif isinstance(result, list):
-            ok = not (result and isinstance(result[0], str) and result[0].startswith("Error:"))
-        elif isinstance(result, str):
-            head = result.strip()[:12]
-            ok = not head.startswith(("Error", "[error", "[timed out", "[exit code"))
-        else:
-            ok = True
-        try:
-            self.audit.record(tool, ok=ok, duration_ms=round((time.monotonic() - start) * 1000), **kwargs)
-        except Exception:
-            pass
-        self._tool_counts[tool] = self._tool_counts.get(tool, 0) + 1
-        return result
+        return self.registry.call(tool, **kwargs).output
 
     def read_file(self, path: str, offset: int = 0, limit: int | None = None) -> str:
-        return self._call("read_file", path=path, offset=offset, limit=limit)
+        return str(self._call("read_file", path=path, offset=offset, limit=limit))
 
     def write_file(self, path: str, content: str) -> str:
-        return self._call("write_file", path=path, content=content)
+        return str(self._call("write_file", path=path, content=content))
 
     def edit_file(self, path: str, old: str, new: str) -> bool:
-        return self._call("edit_file", path=path, old=old, new=new)
+        return bool(self._call_result("edit_file", path=path, old=old, new=new).ok)
 
     def bash(self, command: str, timeout: int = 60) -> str:
-        return self._call("bash", command=command, timeout=timeout)
+        return str(self._call("bash", command=command, timeout=timeout))
 
     def grep(self, pattern: str, include: str | None = None, path: str = ".") -> list[str]:
-        return self._call("grep", pattern=pattern, include=include, path=path)
+        out = self._call("grep", pattern=pattern, include=include, path=path)
+        return out if isinstance(out, list) else [str(out)]
 
     def glob(self, pattern: str, path: str = ".") -> list[str]:
-        return self._call("glob", pattern=pattern, path=path)
+        out = self._call("glob", pattern=pattern, path=path)
+        return out if isinstance(out, list) else [str(out)]
 
     def parse_pdf(self, path: str) -> str:
-        return self._call("parse_pdf", path=path)
+        return str(self._call("parse_pdf", path=path))
 
     def code_research(self, query: str, k: int = 8) -> str:
-        return self._call("code_research", query=query, k=k)
+        return str(self._call("code_research", query=query, k=k))
 
     def fetch_url(self, url: str) -> str:
-        return self._call("fetch_url", url=url)
+        return str(self._call("fetch_url", url=url))
 
     def load_skill(self, name: str) -> str:
         """Load the full instructions of an installed skill by name (see the skills index)."""
         from sick.skills import load_skill_body
 
         body = load_skill_body(name, self.workspace)
+        if body is not None and self.current_run is not None:
+            self.lifecycle.record(self.current_run, ToolResult.success(body[:200], tool="load_skill"), {"name": name})
         return body if body is not None else f"Error: unknown skill: {name}"
 
     def checkpoint(self, message: str = "checkpoint") -> str:
-        return self._call("checkpoint", message=message)
+        return str(self._call("checkpoint", message=message))
 
     def restore(self, n: int = 1) -> str:
-        return self._call("restore", n=n)
+        return str(self._call("restore", n=n))
 
     def checkpoints(self) -> str:
-        return self._call("checkpoints")
+        return str(self._call("checkpoints"))
 
     # ── self-modification helpers ──
 
     def self_read(self, path: str) -> str:
-        return self._call("self_read", path=path)
+        return str(self._call("self_read", path=path))
 
     def self_write(self, path: str, content: str) -> str:
-        return self._call("self_write", path=path, content=content)
+        return str(self._call("self_write", path=path, content=content))
 
     # ── memory ──
 
@@ -321,19 +350,67 @@ class SickAgent(InteractiveAgent):
         tools = sorted(self._tool_counts.keys())
         self.memory.record(Experience(task=task, outcome=outcome, pattern=pattern, tools=tools))
 
+    def learn_brief(self, focus: str = "") -> str:
+        """Mine audit + memory for lessons, record one, return the brief.
+
+        Deterministic half of `/learn`; the generative half (actually editing
+        sick's source) runs from `sick.learn.build_learn_prompt`'s prompt.
+        """
+        from sick.learn import analyze_audit, blocked_run_lessons, summarize
+
+        report = analyze_audit(self.audit.entries(100), focus=focus, turns=self.turns)
+        report.lessons = blocked_run_lessons(self.workspace) + report.lessons
+        brief = summarize(report, self.memory.recall(""))
+        lesson = report.lessons[0] if report.lessons else "session reviewed"
+        self.memory.record(
+            Experience(
+                task=f"learn: {focus or 'session review'}",
+                outcome="lesson recorded",
+                pattern=lesson,
+                tools=sorted(self._tool_counts.keys()),
+            )
+        )
+        return brief
+
     # ── interactive turn protocol ──
 
     @hidden
     async def handle(self, notification: dict[str, list]) -> RespondResult:
         msgs = notification.get("user_messages", [])
         if msgs:
-            self.context["user_request"] = msgs[-1]
+            task = msgs[-1]
+            # Reuse a planned run: awaiting approval = planning turn (do not
+            # finish it); approved = execution turn (gate it). Else start fresh.
+            run = self.current_run
+            planning_turn = bool(
+                run is not None and run.plan_created and not run.approved
+                and run.phase in (Phase.DESIGN, Phase.REQUIREMENTS)
+            )
+            if run is None or not (planning_turn or (run.approved and run.phase == Phase.IMPLEMENT)):
+                run = self.begin_run(str(task))
+                planning_turn = False
+            self.context["user_request"] = task
             self.turns += 1
             await self.respond()
-            self._record_experience(msgs[-1][:80], "success", "chat turn")
+            if planning_turn:
+                run.phase = Phase.DESIGN  # type: ignore[union-attr]
+                self.lifecycle.persist(run)
+                self._record_experience(str(task)[:80], "planned", f"sdlc:{run.phase.value}:{run.tier.value}")  # type: ignore[union-attr]
+                return RespondResult(
+                    kind=RespondReason.DONE,
+                    explanation="plan produced; awaiting /approve or /reject",
+                )
+            verdict = self.finish_run("chat turn")
+            delivered = bool(verdict and verdict.allowed)
+            outcome = "success" if delivered else "blocked"
+            pattern = f"sdlc:{run.phase.value}:{run.tier.value}" if run else "chat turn"
+            self._record_experience(str(task)[:80], outcome, pattern)
             return RespondResult(
                 kind=RespondReason.DONE,
-                explanation="answered the request; waiting for the next user message",
+                explanation=(
+                    "delivered; waiting for the next user message" if delivered
+                    else f"blocked by SDLC gate: {'; '.join(verdict.reasons) if verdict else 'no run'}"
+                ),
             )
         for cmd in notification.get("slash_commands", []):
             value = getattr(cmd, "value", cmd)
@@ -386,11 +463,14 @@ class SickAgent(InteractiveAgent):
         """Modify sick's own source code to improve capabilities.
 
         Steps:
-        1. self_read('agent.py') — understand current code
-        2. Make changes via self_write/edit
-        3. bash('uv run python -c "from sick.agent import SickAgent"') — verify import
-        4. bash('uv run python -m pytest tests/ -x') — verify tests pass
-        5. Record the improvement as an experience
+        1. checkpoint('pre-modify') first — self_write makes this a RISKY run
+           and the SDLC gate requires a checkpoint before delivery
+        2. self_read('agent.py') — understand current code
+        3. Make changes via self_write/edit
+        4. bash('uv run python -c "from sick.agent import SickAgent"') — verify import
+        5. bash('uv run python -m pytest tests/ -x') — verify tests pass
+           (verification must come after the last edit or delivery is blocked)
+        6. Record the improvement as an experience
 
         You can modify: src/sick/agent.py, tools/*.py, skills/*.py, pyproject.toml, README.md
         """

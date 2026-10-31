@@ -40,13 +40,21 @@ def preflight(workspace: str) -> tuple[str, bool]:
 
     if shutil.which("uv"):
         try:
+            # no -q here: pyproject addopts already sets it, and -qq would
+            # suppress the summary line this report looks for
             pytest = subprocess.run(
-                [sys.executable, "-m", "pytest", "-q"], capture_output=True, text=True, cwd=workspace,
+                [sys.executable, "-m", "pytest"], capture_output=True, text=True, cwd=workspace,
                 env=_clean_env(), timeout=120,
             )
-            summary = pytest.stdout.strip().splitlines()[-1] if pytest.stdout.strip() else "no tests found"
-            if pytest.stderr.strip() and "passed" not in summary and "failed" not in summary:
-                summary = pytest.stderr.strip().splitlines()[-1][:200]
+            out_lines = pytest.stdout.strip().splitlines()
+            # prefer the pytest summary line; stdout's tail can be log noise,
+            # and stderr (tracing exporter noise) must not clobber a good one
+            summary = next(
+                (ln for ln in reversed(out_lines) if "passed" in ln or "failed" in ln),
+                None,
+            )
+            if summary is None:
+                summary = out_lines[-1] if out_lines else "no tests found"
             lines.append(f"pytest: {summary}")
             if pytest.returncode != 0:
                 ok = False

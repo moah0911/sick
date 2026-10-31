@@ -20,17 +20,17 @@ def test_attachment_blocks_outside_workspace(tmp_path):
 
 def test_fetch_url_blocks_localhost():
     out = FetchUrl().execute("http://localhost:5001/secret")
-    assert "blocked host" in out
+    assert "blocked host" in out.output
 
 
 def test_fetch_url_blocks_metadata():
     out = FetchUrl().execute("http://169.254.169.254/latest/meta-data/")
-    assert "blocked host" in out
+    assert "blocked host" in out.output
 
 
 def test_fetch_url_rejects_credentials():
     out = FetchUrl().execute("http://user:pass@example.com/")
-    assert "credentials not allowed" in out or "blocked" in out
+    assert "credentials not allowed" in out.output or "blocked" in out.output
 
 
 def test_audit_redacts_api_key(tmp_path):
@@ -50,7 +50,7 @@ def test_grep_include_uses_fnmatch(tmp_path):
     (tmp_path / "c.txt").write_text("needle\n")
     from sick.tools.search import Grep
 
-    results = Grep(tmp_path).execute("needle", include="*.py")
+    results = Grep(tmp_path).execute("needle", include="*.py").output
     assert any("a.py" in r for r in results)
     assert any("b.py" in r for r in results)
     assert not any("c.txt" in r for r in results)

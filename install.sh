@@ -11,6 +11,10 @@ log() { printf '\033[1;34m[sick]\033[0m %s\n' "$*"; }
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT"
 
+# the `nooa` git dependency carries Git-LFS example artifacts that installs
+# don't need; skipping the smudge keeps clones working without git-lfs
+export GIT_LFS_SKIP_SMUDGE="${GIT_LFS_SKIP_SMUDGE:-1}"
+
 MODE="local"
 WITH_VIDEO=0
 for arg in "$@"; do
@@ -45,7 +49,10 @@ if [ "$MODE" = "uninstall" ]; then
 fi
 
 ensure_uv
-uv python install 3.13
+# only download a Python when none is available (keeps re-runs offline-safe)
+if ! uv python find 3.13 >/dev/null 2>&1; then
+  uv python install 3.13
+fi
 
 if [ "$MODE" = "global" ]; then
   log "installing sick globally via uv tool (isolated env, works from any directory)"

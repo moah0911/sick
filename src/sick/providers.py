@@ -1,9 +1,24 @@
+import getpass
 import os
+import sys
 from abc import ABC, abstractmethod
+from pathlib import Path
 
 from dotenv import load_dotenv
 from nooa.unifiedllm import UnifiedLLM
 from nooa.unifiedllm.registry import get_llm_client
+
+# provider name -> env var holding its API key (wizard + /connect share this)
+PROVIDER_KEYS = {
+    "nvidia": "NVIDIA_API_KEY",
+    "anthropic": "ANTHROPIC_API_KEY",
+    "openai": "OPENAI_API_KEY",
+}
+_PROVIDER_MENU = [
+    ("nvidia", "NVIDIA NIM — get a key at https://build.nvidia.com"),
+    ("anthropic", "Anthropic — get a key at https://console.anthropic.com"),
+    ("openai", "OpenAI / OpenAI-compatible — get a key at https://platform.openai.com"),
+]
 
 _ENV_KEYS = (
     "NVIDIA_API_KEY",
@@ -34,6 +49,80 @@ def load_env(path=None) -> None:
 
 
 load_env()
+
+
+def _upsert_env(lines: list[str], var: str, value: str) -> list[str]:
+    for i, line in enumerate(lines):
+        if line.strip().startswith(f"{var}="):
+            lines[i] = f"{var}={value}"
+            return lines
+    lines.append(f"{var}={value}")
+    return lines
+
+
+def save_api_key(env_path: str | Path, provider: str, key: str) -> Path:
+    """Idempotently store one provider key (+ SICK_PROVIDER) in a .env file.
+
+    Creates the file (mode 600) when missing, preserves other entries, and
+    exports both values into this process so startup can continue at once.
+    """
+    if provider not in PROVIDER_KEYS:
+        raise ValueError(f"unknown provider: {provider}")
+    path = Path(env_path)
+    lines = path.read_text().splitlines() if path.exists() else []
+    lines = _upsert_env(lines, PROVIDER_KEYS[provider], key)
+    lines = _upsert_env(lines, "SICK_PROVIDER", provider)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(lines) + "\n")
+    try:
+        path.chmod(0o600)
+    except OSError:
+        pass
+    os.environ[PROVIDER_KEYS[provider]] = key
+    os.environ["SICK_PROVIDER"] = provider
+    return path
+
+
+def prompt_for_api_key(env_path: str | Path, input_fn=input, secret_fn=None) -> bool:
+    """First-run wizard: choose a provider, paste its key (hidden), save it.
+
+    Returns True when a key was saved. Never echoes the key. Safe to call
+    only on an interactive terminal — the caller checks `isatty()`.
+    """
+    if secret_fn is None:
+        secret_fn = getpass.getpass
+    out = sys.stderr
+    print("\nsick needs an LLM API key to start — let's set one up (one time).", file=out)
+    print("Step 1 of 2 — choose your provider:", file=out)
+    for i, (_, label) in enumerate(_PROVIDER_MENU, 1):
+        print(f"  {i}. {label}", file=out)
+    try:
+        choice = input_fn("Provider [1]: ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        print("\nsetup skipped — set a key in .env when you're ready.", file=out)
+        return False
+    names = [name for name, _ in _PROVIDER_MENU]
+    if choice in ("", "1"):
+        provider = names[0]
+    elif choice in ("2", "3"):
+        provider = names[int(choice) - 1]
+    elif choice in names:
+        provider = choice
+    else:
+        print(f"unknown choice {choice!r} — setup skipped.", file=out)
+        return False
+    print(f"Step 2 of 2 — paste your {provider} API key (input stays hidden).", file=out)
+    try:
+        key = secret_fn("API key: ").strip()
+    except (EOFError, KeyboardInterrupt):
+        print("\nsetup skipped — set a key in .env when you're ready.", file=out)
+        return False
+    if not key:
+        print("no key entered — setup skipped.", file=out)
+        return False
+    save_api_key(env_path, provider, key)
+    print(f"saved to {env_path} (only you can read it). Starting sick…", file=out)
+    return True
 
 
 class LLMProvider(ABC):

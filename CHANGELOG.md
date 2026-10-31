@@ -1,4 +1,27 @@
 # Changelog
+## Unreleased
+- Real SDLC: `sick.lifecycle` evidence-gated runs (phases observed from tool results, risk-tiered delivery gates, `.sick/runs/<id>/` artifacts, `/run` command, `/plan`→`/approve` backed by run state); `handle()` no longer records unconditional success — unverified edits record `blocked` `lifecycle.py`, `agent.py`, `tui/commands.py`, `cli.py` (exit 3 when blocked)
+- Real OO seam: every tool returns typed `ToolResult`, dispatched via `ToolRegistry` (audit/counts/lifecycle in one place); removed `isinstance` output-sniffing in `agent._call`, fixed private leaks (`registry.set_sandboxed()`, `registry.counts()`), removed duplicate `_register_discovered_skills` `tools/base.py`, `tools/registry.py`, all `tools/*.py`
+- AST design checks on changed files (duplicate definitions block, size/private-access recorded), skill-routed phases via existing discovery, `/learn` mines blocked runs `design_check.py`, `learn.py`
+- Tests: +12 (lifecycle gates, registry, agent handle gating, plan lifecycle, blocked-run lessons); demo `demos/sdlc_gate.py` (no LLM); `GLOSSARY.md`, `docs/adr/0001-evidence-gated-sdlc.md`
+- Add `/learn [focus]` self-improvement (audit/memory mining → lesson → verified self-edit, rollback via checkpoint) + `sick --learn`; memory writes are now best-effort `learn.py`, `agent.py`, `tui/commands.py`, `cli.py`, `memory.py`
+- Add OpenCode-basic TUI commands: `/undo`, `/redo`, `/compact` (`/summarize`), `/export`, `/init`, `/sessions` (`/resume`/`/continue`), `/details`, `/thinking`, `/editor`, `/connect`, `/themes`, `/update` + `ctrl+x u/r/s` bindings and a conversation transcript for export `tui/commands.py`, `tui/app.py`
+- Tests: +13 (learn core, new-command dispatch, undo/redo roundtrip, editor)
+- First run without a key now opens a setup wizard (provider → hidden key entry → saved to `.env`, mode 600) instead of an edit-this-file error; non-interactive runs still exit 2 with a hint `providers.py:prompt_for_api_key`, `cli.py`
+- TUI redesign: custom `sick` theme, status sidebar + status bar (live turns/tools/view state, auto-hide <90 cols), restyled chat roles/input, grouped `/help` with full keymap, OpenCode-style `ctrl+x` leader keymap (`n` new, `c` compact, `l` learn, `s` sessions, `u` undo…) + `ctrl+t` theme cycling `tui/app.py`, `tui/chat.py`, `tui/inputbar.py`, `tui/commands.py`
+- Windows support: `install.ps1` + `install.bat` + `bin/sick.cmd` (uv sync/tool, `sick` on PATH, preflight), drive-safe LSP file URIs, Windows-safe `$EDITOR` parsing, `windows-smoke` CI job, compatibility matrix in `WINDOWS.md` (bwrap sandbox stays Linux-only; WSL for 100%)
+- Fix `ctrl+x` leader keymap: Textual binding commas mean alternative keys, not chords, so leader keys typed into the input instead of dispatching — now a real leader handler (`handle_leader_key`) with regression test; `install.ps1` now fails loudly when `uv` fails instead of reporting success
+- Fix `Checkpoint` committing onto the working branch when the branch switch fails (checks every git step, verifies HEAD before committing) `tools/git.py`
+- Fix empty `SICK_MEMORY_DIR=`/`SICK_REMOTION_DIR=` resolving to `Path(".")` — memory leaked into the cwd and Remotion skills never loaded `memory.py`, `agent.py`
+- Fix broken wheel build: scope hatch `force-include` to the wheel target `pyproject.toml`
+- Add skill discovery: every installed `SKILL.md` indexed in context, `load_skill(name)` loads bodies on demand `skills.py`, `agent.py`
+- Dead code removed: `REMOTION_PROMPT`, `config._max_bytes`, `CodeIndex.status`, unused `SickConfig` fields; byte-limit helpers consolidated into `tools/base.py:max_read_bytes`
+- `SickConfig` gains `command` + `tracing` so config-file custom commands and the tracing toggle actually work `config.py`
+- `preflight` import check uses the current interpreter (no `uv run`, no agent instantiation); real portalocker probe; cleaner pytest summary `preflight.py`
+- Audit arg values truncated at 1000 chars `audit.py`; TUI `@file.pdf` outside workspace and double-read in template expansion fixed `tui/`
+- `install.sh`: `--global` (uv tool), `--uninstall`, offline-safe re-runs, LFS-skip for the `nooa` git dep; `bin/sick` prefers the venv binary
+- Tests: 67 → 81, coverage 50.3% → 56.4%; see `AUDIT.md`
+
 ## 0.1.0 — 2026-08-28
 - Fix `_call` ok-heuristic for bool/list/str (audit correctness) `agent.py:190`
 - Fix `excluded` union (preserve node_modules/.venv/.git) + thread to CodeIndex `agent.py:156`, `tools/research.py:59`, `tools/base.py:6`

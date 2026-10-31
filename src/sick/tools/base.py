@@ -1,5 +1,6 @@
 import os
 from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -17,12 +18,42 @@ def max_read_bytes() -> int:
         return MAX_READ_BYTES
 
 
+@dataclass
+class ToolResult:
+    """The single return type of every tool.
+
+    `output` is the value rendered to the LLM / caller (str, bool, list, ...).
+    `ok` is authoritative — callers never sniff output strings for errors.
+    """
+
+    ok: bool
+    output: Any = ""
+    error: str | None = None
+    tool: str = ""
+    duration_ms: int = 0
+    meta: dict[str, Any] = field(default_factory=dict)
+
+    @classmethod
+    def success(cls, output: Any = "", *, tool: str = "", **meta: Any) -> "ToolResult":
+        return cls(ok=True, output=output, tool=tool, meta=dict(meta))
+
+    @classmethod
+    def failure(cls, error: str, *, output: Any = None, tool: str = "", **meta: Any) -> "ToolResult":
+        return cls(ok=False, output=error if output is None else output, error=error, tool=tool, meta=dict(meta))
+
+    def render(self) -> Any:
+        return self.output
+
+    def __str__(self) -> str:
+        return self.output if isinstance(self.output, str) else str(self.output)
+
+
 class Tool(ABC):
     name: str
     description: str
 
     @abstractmethod
-    def execute(self, **kwargs: Any) -> Any: ...
+    def execute(self, **kwargs: Any) -> ToolResult: ...
 
 
 class WorkspaceTool(Tool):

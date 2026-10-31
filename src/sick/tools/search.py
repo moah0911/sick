@@ -1,7 +1,7 @@
 import fnmatch
 import re
 
-from sick.tools.base import WorkspaceTool, max_read_bytes
+from sick.tools.base import ToolResult, WorkspaceTool, max_read_bytes
 
 MAX_GREP_RESULTS = 200
 
@@ -19,14 +19,14 @@ class Grep(WorkspaceTool):
     name = "grep"
     description = "Search file contents for a regex pattern"
 
-    def execute(self, pattern: str, include: str | None = None, path: str = ".") -> list[str]:
+    def execute(self, pattern: str, include: str | None = None, path: str = ".") -> ToolResult:
         try:
             regex = re.compile(pattern)
             search_root = self.resolve_path(path)
         except (re.error, ValueError) as exc:
-            return [f"Error: {exc}"]
+            return ToolResult.failure(f"Error: {exc}", output=[f"Error: {exc}"], tool=self.name)
         if not search_root.is_dir():
-            return [f"Error: {path} is not a directory"]
+            return ToolResult.failure(f"Error: {path} is not a directory", output=[f"Error: {path} is not a directory"], tool=self.name)
 
         results: list[str] = []
         max_bytes = max_read_bytes()
@@ -47,29 +47,29 @@ class Grep(WorkspaceTool):
                         results.append(f"{p.relative_to(self.root)}:{i}: {line}")
                         if len(results) >= max_res:
                             results.append(f"[truncated after {max_res} results]")
-                            return results
+                            return ToolResult.success(results, tool=self.name)
             except OSError:
                 continue
-        return results
+        return ToolResult.success(results, tool=self.name)
 
 
 class Glob(WorkspaceTool):
     name = "glob"
     description = "Find files matching a glob pattern"
 
-    def execute(self, pattern: str, path: str = ".") -> list[str]:
+    def execute(self, pattern: str, path: str = ".") -> ToolResult:
         try:
             search_root = self.resolve_path(path)
         except ValueError as exc:
-            return [f"Error: {exc}"]
+            return ToolResult.failure(f"Error: {exc}", output=[f"Error: {exc}"], tool=self.name)
         if not search_root.is_dir():
-            return [f"Error: {path} is not a directory"]
+            return ToolResult.failure(f"Error: {path} is not a directory", output=[f"Error: {path} is not a directory"], tool=self.name)
         try:
             matches = search_root.rglob(pattern)
-            return sorted(
+            return ToolResult.success(sorted(
                 str(p.relative_to(self.root))
                 for p in matches
                 if p.is_file() and not self.is_ignored(p)
-            )
+            ), tool=self.name)
         except (OSError, ValueError) as exc:
-            return [f"Error: {exc}"]
+            return ToolResult.failure(f"Error: {exc}", output=[f"Error: {exc}"], tool=self.name)
