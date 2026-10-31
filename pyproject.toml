@@ -1,6 +1,6 @@
 [project]
 name = "sick-agent"
-version = "0.2.1"
+version = "0.2.3"
 description = "Self-improving coding agent built on the NOOA framework"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -23,6 +23,7 @@ keywords = ["agent", "coding-assistant", "llm", "nooa", "textual"]
 
 dependencies = [
     "nooa",
+    "mcp>=1.0",
     "python-dotenv",
     "textual>=8.2.8",
     "portalocker>=4.1",

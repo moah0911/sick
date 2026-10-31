@@ -132,7 +132,34 @@ def test_groq_create_llm_uses_groq_key_and_base(monkeypatch):
     assert out == "llm"
     assert captured["api_key"] == "gsk-secret"
     assert captured["api_base"] == "https://api.groq.com/openai/v1"
-    assert "llama" in captured["model"]
+    # native litellm Groq routing (bare names take the OpenAI-compatible
+    # path, which forwards OpenAI-only params Groq rejects)
+    assert captured["model"] == "groq/llama-3.3-70b-versatile"
+    # NOOA injects prompt_cache_key on every call; Groq must strip it
+    assert captured["additional_drop_params"] == ["prompt_cache_key"]
+
+
+def test_groq_client_config_strips_prompt_cache_key(monkeypatch):
+    """Real client construction: groq/ model + drop config, no network."""
+    from sick.providers import Groq
+
+    monkeypatch.setenv("GROQ_API_KEY", "gsk-fake")
+    llm = Groq().create_llm()
+    assert llm.model == "groq/llama-3.3-70b-versatile"
+    assert llm.config["additional_drop_params"] == ["prompt_cache_key"]
+
+
+def test_prompt_cache_key_dropped_from_groq_params():
+    """Transform-level proof (no network, no valid key needed)."""
+    from litellm.utils import get_optional_params
+
+    optional = get_optional_params(
+        model="groq/llama-3.3-70b-versatile",
+        custom_llm_provider="groq",
+        prompt_cache_key="agent-1-CodeActStrategy",
+        additional_drop_params=["prompt_cache_key"],
+    )
+    assert "prompt_cache_key" not in optional
 
 
 def test_save_groq_clears_stale_base_url(tmp_path):

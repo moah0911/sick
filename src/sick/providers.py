@@ -236,14 +236,20 @@ class OpenAICompatible(LLMProvider):
     def base_url(self) -> str | None:
         return self._base_url
 
+    def _client_model(self) -> str:
+        return self._model
+
+    def _extra_client_kwargs(self) -> dict:
+        return {}
+
     def create_llm(self) -> UnifiedLLM:
         key = os.environ.get(self.key_env) or self._key_fallback
         if not key:
             raise ValueError(f"{self.key_env} not set")
-        kwargs: dict = {"api_key": key, "timeout": 60}
+        kwargs: dict = {"api_key": key, "timeout": 60, **self._extra_client_kwargs()}
         if self._base_url:
             kwargs["api_base"] = self._base_url.rstrip("/")
-        return get_llm_client(self._model, **kwargs)
+        return get_llm_client(self._client_model(), **kwargs)
 
 
 class Groq(OpenAICompatible):
@@ -254,6 +260,19 @@ class Groq(OpenAICompatible):
 
     def __init__(self, model: str = GROQ_MODEL, base_url: str | None = GROQ_BASE_URL):
         super().__init__(model or GROQ_MODEL, base_url or GROQ_BASE_URL)
+
+    def _client_model(self) -> str:
+        # Route via litellm's native Groq provider, not the generic
+        # OpenAI-compatible endpoint path (which forwards OpenAI-only
+        # params such as prompt_cache_key that Groq's API rejects).
+        return self._model if self._model.startswith("groq/") else f"groq/{self._model}"
+
+    def _extra_client_kwargs(self) -> dict:
+        # NOOA's actor injects prompt_cache_key on every call for OpenAI
+        # prompt caching; Groq rejects it as an unsupported property.
+        # additional_drop_params is forwarded by get_llm_client to every
+        # litellm completion, stripping it before the request is built.
+        return {"additional_drop_params": ["prompt_cache_key"]}
 
 
 class Anthropic(LLMProvider):

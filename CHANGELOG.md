@@ -1,4 +1,11 @@
 # Changelog
+## 0.2.3
+- Add missing `mcp` dependency: litellm >=1.106 imports its MCP handler whenever a request carries tools (NOOA CodeAct always does), so fresh `uv tool` installs crashed with `No module named 'mcp'` for any provider. The dev venv's older litellm (1.96.2) masked this in 0.2.2 — the published-wheel isolated smoke test caught it. Includes the 0.2.2 Groq routing fix below.
+
+## 0.2.2
+- Fix Groq turns failing in the installed tool (`GroqException - No module named 'mcp'`, then `property 'prompt_cache_key' is unsupported`): route Groq via litellm's native `groq/<model>` provider instead of the bare-name OpenAI-compatible path, and pass `additional_drop_params=["prompt_cache_key"]` so NOOA's per-call OpenAI prompt-cache shard key never reaches Groq's API `providers.py`. Verified through the real NOOA client with tools in an env without `mcp`: request now reaches Groq auth instead of import/param errors
+- Tests: +2 (real Groq client config, transform-level param stripping)
+
 ## 0.2.1
 - Fix "cannot change API key after first setup": new `sick --setup` re-runs the provider wizard any time; `/connect <provider>` switches live between saved providers (hot-swapped LLM, no restart); provider saves/switches clear stale `SICK_BASE_URL`/`SICK_MODEL` so the old endpoint/model cannot leak across a switch `providers.py`, `cli.py`, `agent.py`, `tui/commands.py`
 - Add Groq as a first-class provider (`GROQ_API_KEY`, `SICK_PROVIDER=groq`, built-in `https://api.groq.com/openai/v1` + `llama-3.3-70b-versatile`); legacy OpenAI-key + Groq base-URL configs still detect as Groq
