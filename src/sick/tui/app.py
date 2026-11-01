@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import re
+import threading
+import time
 from pathlib import Path
 
 from textual.app import App, ComposeResult
@@ -135,6 +137,10 @@ class SickApp(App):
         self.show_thinking = True
         self._can_redo = False
         self._busy_state = False
+        self._work_started = 0.0
+        self._last_tool = "—"
+        self._llm_calls = 0
+        self._ui_thread = 0
         self._branch = ""
         self._leader = False
 
@@ -202,7 +208,11 @@ class SickApp(App):
         run = getattr(self.agent, "current_run", None)
         sdlc_line = f"  sdlc    {run.phase.value}/{run.tier.value}" if run is not None else "  sdlc    —"
         skills = len(getattr(self.agent, "discovered_skills", []) or [])
-        state = "thinking…" if self._busy_state else "ready"
+        if self._busy_state:
+            elapsed = int(time.monotonic() - self._work_started) if self._work_started else 0
+            state = f"working {elapsed}s · last: {self._last_tool} · llm calls {self._llm_calls}"
+        else:
+            state = "ready"
         panel = "\n".join([
             "WORKSPACE",
             f"  {ws.name or ws}",
@@ -258,6 +268,9 @@ class SickApp(App):
 
         def _busy(busy: bool) -> None:
             orig_set_busy(busy)
+            if busy and not self._busy_state:
+                self._work_started = time.monotonic()
+                self._llm_calls = 0
             self._busy_state = busy
             if self.sick_input:
                 self.sick_input.set_busy(busy)
@@ -288,6 +301,20 @@ class SickApp(App):
         # silence while they thought. Render it (dimmed) when enabled.
         try:
             self.agent.event_manager.on("LLMComplete", self._on_llm_complete)
+            self.agent.event_manager.on("LLMOutput", self._on_llm_output)
+        except Exception:
+            pass
+        # Live tool activity: every Sick tool call streams start/done lines
+        # to the chat as it executes (the registry is the single seam all
+        # tool calls already flow through).
+        self._ui_thread = threading.get_ident()
+        try:
+            if getattr(self.agent, "registry", None) is not None:
+                self.agent.registry.activity = self._on_tool_activity
+        except Exception:
+            pass
+        try:
+            self.set_interval(1.0, self._tick_work_status)
         except Exception:
             pass
         self.host.start()
@@ -298,6 +325,7 @@ class SickApp(App):
 
     def _on_llm_complete(self, event) -> None:
         """Render one LLM round-trip's reasoning when thinking is visible."""
+        self._llm_calls += 1
         if not self.show_thinking or self.chat_view is None:
             return
         reasoning = getattr(event, "reasoning_content", "") or ""
@@ -307,6 +335,53 @@ class SickApp(App):
                 self.chat_view.add_thinking(reasoning)
             except Exception:
                 pass
+
+    def _on_llm_output(self, event) -> None:
+        """Preview the code/output the model just produced (per iteration)."""
+        if not self.show_thinking or self.chat_view is None:
+            return
+        content = (getattr(event, "content", "") or "").strip()
+        if not content:
+            return
+        first = next((ln.strip() for ln in content.splitlines() if ln.strip()), "")
+        if first:
+            self._render_live(f"▸ code: {first[:140]}")
+
+    def _on_tool_activity(self, event: dict) -> None:
+        """Stream one tool start/done line to the chat (registry hook)."""
+        tool = event.get("tool", "?")
+        summary = event.get("summary", "")
+        if event.get("phase") == "start":
+            self._last_tool = f"{tool} {summary}".strip()
+            self._render_live(f"▸ {tool}({summary})" if summary else f"▸ {tool}")
+        else:
+            ms = int(event.get("duration_ms") or 0)
+            dur = f"{ms / 1000:.1f}s" if ms >= 1000 else f"{ms}ms"
+            mark = "✓" if event.get("ok") else "✗"
+            self._render_live(f"{mark} {tool} · {dur}")
+
+    def _render_live(self, line: str) -> None:
+        """Write a live-activity line, hopping to the UI thread if needed."""
+        def render() -> None:
+            if self.chat_view is None:
+                return
+            self._note("tool", line)
+            try:
+                self.chat_view.add_tool(line)
+            except Exception:
+                pass
+
+        if self._ui_thread and threading.get_ident() != self._ui_thread:
+            try:
+                self.call_from_thread(render)
+                return
+            except Exception:
+                pass
+        render()
+
+    def _tick_work_status(self) -> None:
+        if self._busy_state:
+            self.refresh_status()
 
     def _model_str(self) -> str:
         from sick.providers import client_model_name

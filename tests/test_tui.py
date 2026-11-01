@@ -215,6 +215,51 @@ def test_thinking_renders_llm_reasoning(tmp_path):
     asyncio.run(scenario())
 
 
+def test_live_feed_streams_tools_thinking_and_stays_visible(tmp_path):
+    """OpenCode-style live feed: user line, tool lines, thinking — in flight."""
+    from types import SimpleNamespace
+
+    from sick.tui.app import SickApp
+    from sick.tui.host import TurnHost
+
+    class WorkingAgent(FakeAgent):
+        async def respond(self):
+            self.write_file("hello.py", "print('hello')\n")
+            self.bash("echo done")
+
+    async def scenario():
+        agent = WorkingAgent(str(tmp_path))
+        app = SickApp(agent)
+        host = TurnHost(agent, DummyChat())
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            host.start()
+            await host.submit("write hello")
+            deadline = time.time() + 10
+            while agent.turns < 1 and time.time() < deadline:
+                await asyncio.sleep(0.05)
+                await pilot.pause()
+            # let the turn drain through the host loop
+            for _ in range(40):
+                await asyncio.sleep(0.05)
+                await pilot.pause()
+                if any("hello.py" in str(ln) for ln in app.chat_view.lines):
+                    break
+            host.stop()
+            lines = [str(ln) for ln in app.chat_view.lines]
+            assert any("write_file" in ln for ln in lines), lines[-8:]
+            assert any("✓" in ln and "write_file" in ln for ln in lines)
+            assert (tmp_path / "hello.py").is_file()
+            # busy must never cover the chat with RichLog's loading overlay
+            app.chat_view.set_busy(True)
+            assert app.chat_view.loading is False
+            app._on_llm_output(SimpleNamespace(content="print('x')\nprint('y')"))
+            await pilot.pause()
+            assert any("▸ code:" in str(ln) for ln in app.chat_view.lines)
+
+    asyncio.run(scenario())
+
+
 def test_stats_command():
     from sick.tui.app import SickApp
 
