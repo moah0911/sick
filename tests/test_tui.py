@@ -53,6 +53,24 @@ def test_host_delivers_user_messages(tmp_path):
     asyncio.run(scenario())
 
 
+def test_host_skips_session_checkpoint_outside_git(tmp_path):
+    from sick.tui.host import TurnHost
+
+    async def scenario():
+        agent = FakeAgent(str(tmp_path))
+        host = TurnHost(agent, DummyChat())
+        host.start()
+        await host.submit("hello")
+        deadline = time.time() + 10
+        while not agent.received and time.time() < deadline:
+            await asyncio.sleep(0.05)
+        host.stop()
+        tools = [e["tool"] for e in agent.audit.entries()]
+        assert "checkpoint" not in tools  # non-git: no doomed session-start call
+
+    asyncio.run(scenario())
+
+
 def test_expand_attachments():
     from sick.tui.app import SickApp
 

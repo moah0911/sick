@@ -286,6 +286,20 @@ class SickAgent(InteractiveAgent):
         if self.current_run is None:
             return None
         verdict = self.lifecycle.finish(self.current_run, summary)
+        # Close the learning loop: a delivered /learn run that actually
+        # edited sick's source promotes its candidate lesson to verified.
+        run = self.current_run
+        if verdict.allowed and "improve yourself" in run.task and any(
+            m.get("tool") == "self_write" for m in run.mutations
+        ):
+            try:
+                from sick.learn import LessonStore
+
+                LessonStore(self.memory._path.parent / "lessons.json").complete_latest(  # noqa: SLF001
+                    ", ".join(run.changed_files) or "self-edit"
+                )
+            except Exception:
+                pass
         self.context["sdlc_state"] = self.lifecycle.prompt(self.current_run)
         self.context["sdlc_result"] = (
             "DELIVERED" if verdict.allowed else "BLOCKED: " + "; ".join(verdict.reasons)
@@ -396,6 +410,14 @@ class SickAgent(InteractiveAgent):
         lines = []
         for e in results:
             lines.append(f"- {e.task}: {e.outcome} (pattern: {e.pattern}, tools: {', '.join(e.tools)})")
+        try:
+            from sick.learn import LessonStore
+
+            task = str(self.context.get("user_request", ""))
+            for lesson in LessonStore(self.memory._path.parent / "lessons.json").relevant(task):  # noqa: SLF001
+                lines.append(f"- lesson [{lesson.trigger}]: {lesson.root_cause} → fix: {lesson.fix_applied}")
+        except Exception:
+            pass
         return "\n".join(lines)
 
     def _record_experience(self, task: str, outcome: str, pattern: str) -> None:
@@ -408,10 +430,27 @@ class SickAgent(InteractiveAgent):
         Deterministic half of `/learn`; the generative half (actually editing
         sick's source) runs from `sick.learn.build_learn_prompt`'s prompt.
         """
-        from sick.learn import analyze_audit, blocked_run_lessons, summarize
+        from sick.learn import (
+            LessonStore,
+            analyze_audit,
+            blocked_run_lessons,
+            candidate_lesson,
+            summarize,
+        )
 
         report = analyze_audit(self.audit.entries(100), focus=focus, turns=self.turns)
         report.lessons = blocked_run_lessons(self.workspace) + report.lessons
+        # Structured learning: escalate lessons whose trigger recurred,
+        # then record today's candidate (promoted only on verified fix).
+        try:
+            store = LessonStore(self.memory._path.parent / "lessons.json")  # noqa: SLF001
+            for dead in store.escalate_recurring(report):
+                report.lessons.insert(0, f"INEFFECTIVE lesson (trigger recurred): {dead.trigger} — {dead.root_cause}")
+            candidate = candidate_lesson(report, self.workspace)
+            if candidate is not None:
+                store.record(candidate)
+        except Exception:
+            pass
         brief = summarize(report, self.memory.recall(""))
         lesson = report.lessons[0] if report.lessons else "session reviewed"
         self.memory.record(
