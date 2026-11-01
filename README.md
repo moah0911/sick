@@ -118,7 +118,7 @@ model the running client is actually using.
 Per-project settings go in `.sick/config.toml`:
 
 ```toml
-model = "gpt-4o-mini"      # override the LLM model
+model = "gpt-5.5"      # override the LLM model
 excluded = ["vendor"]      # extra dirs to skip in search/research
 ```
 
