@@ -162,20 +162,6 @@ Review $ARGUMENTS via code_research and grep, propose plan, run pytest, keep dif
 - `$ARGUMENTS` / `{{args}}` / `$1` replaced with args, appears in `/help`, dispatch via `app._send`.
 - Example: `.sick/commands/review.md`, `.sick/commands/commit.md` → `/review file.py`, `/commit "fix auth"`
 
-## Attach PDFs
-
-```bash
-# Attach a PDF — Docling parses it into clean Markdown automatically
-sick --attach spec.pdf "implement the login flow from section 3"
-
-# Multiple attachments
-sick --attach requirements.pdf --attach spec.pdf "build the project"
-```
-
-The agent can also parse PDFs mid-task:
-
-```python
-result = agent.parse_pdf("docs/report.pdf")
 ```
 
 ## Built-in Skills
@@ -215,23 +201,6 @@ enforces one (`src/sick/lifecycle.py`, see `docs/adr/0001-evidence-gated-sdlc.md
 
 Proof, no LLM needed: `uv run python demos/sdlc_gate.py` — an unverified
 edit is blocked, a verified edit delivers, artifacts are listed.
-
-## Explainer videos
-
-`/visual <topic>` makes an explanatory video about the topic with Remotion: the
-agent scaffolds a project in the workspace, designs the composition, and
-renders it with `npx remotion render`.
-
-The Remotion skills (create + best practices) must be installed once:
-
-```bash
-npx skills add remotion-dev/skills@remotion-create -g -y
-npx skills add remotion-dev/skills@remotion-best-practices -g -y
-```
-
-Sick loads both `SKILL.md` files into the agent context at startup; reference
-guides under `~/.agents/skills/remotion-best-practices/` are read on demand
-via `bash cat`.
 
 ## Tools
 
