@@ -17,12 +17,19 @@ class ChatView(RichLog):
         super().__init__(max_lines=2000, auto_scroll=True, wrap=True, highlight=True, markup=True, **kwargs)
         self.can_focus = True
 
+    def add_turn_separator(self, turn: int, clock: str = "") -> None:
+        """Hairline boundary so previous turns stay distinct when scrolling."""
+        label = f"── turn {turn} · {clock} " if clock else f"── turn {turn} "
+        self.write(Text(label + "─" * 48, style="dim #46536a"))
+
     def add_user(self, text: str) -> None:
         self.write(Text("▌ YOU", style="bold #3fb6a8"))
-        self.write(Text(text[:8000]))
+        # raised ground: user text is yours at a glance, even 200 lines up
+        self.write(Text(text[:8000], style="#d8dee9 on #18202e"))
 
-    def add_agent(self, text: str) -> None:
-        self.write(Text("▌ SICK", style="bold #3ecf8e"))
+    def add_agent(self, text: str, meta: str = "") -> None:
+        header = f"▌ SICK · {meta}" if meta else "▌ SICK"
+        self.write(Text(header, style="bold #3ecf8e"))
         try:
             self.write(Markdown(text[:20000], hyperlinks=True, code_theme="github-dark"))
         except Exception:
@@ -42,16 +49,16 @@ class ChatView(RichLog):
     def add_activity(self, line: str) -> None:
         """One live tool line with tree glyphs (start ▸ / done ✓✗)."""
         if line.startswith("✓"):
-            self.write(Text(f"  ╰─ {line}", style="dim #8a94a6"))
+            self.write(Text(f"  ╰─ {line}", style="dim #7d8aa0"))
         elif line.startswith("✗"):
             self.write(Text(f"  ╰─ {line}", style="bold #e5534b"))
         elif line.startswith("▸"):
-            self.write(Text(f"  ├─ {line}", style="dim italic #8a94a6"))
+            self.write(Text(f"  ├─ {line}", style="dim italic #7d8aa0"))
         else:
             self.add_tool(line)
 
     def add_tool(self, text: str) -> None:
-        self.write(Text(f"  │ {text[:4000]}", style="dim italic #8a94a6"))
+        self.write(Text(f"  │ {text[:4000]}", style="dim italic #7d8aa0"))
 
     def add_error(self, text: str) -> None:
         self.write(Text(f"  ✗ {text[:4000]}", style="bold #e5534b"))

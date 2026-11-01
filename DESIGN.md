@@ -31,12 +31,19 @@ no emoji decoration. Color is semantic or it is absent.
   on completion (✗ in error color). Verbatim Sick tool names, never renamed.
 - **Thinking:** `THINKING` hairline label, dim italic body, subordinate to
   the reply. Toggle: `/thinking`.
-- **SDLC tracker (sidebar):** vertical stepper
-  requirements → design → implement → verify → deliver; `✓` done,
-  `●` current (emerald), `○` pending; gate line shows DELIVERABLE /
-  BLOCKED + first reason in semantic color; tier + routed skill named.
+- **No sidebar.** The chat canvas is full-width; scrollbars are hidden
+  (scrolling via wheel/keys) so no stock-colored bars ever appear.
+- **SDLC tracker:** compact segment in the status bar
+  (`sdlc design · gate BLOCKED`); the full vertical stepper
+  (requirements → design → implement → verify → deliver, gate verdict,
+  tier, routed skill) prints in chat via `/status`, on demand only.
+- **Message distinction:** each turn opens with a hairline separator
+  (`── turn 3 · 10:42 ──`); user blocks sit on a raised ground
+  (`#18202e`) under a `▌ YOU` rule; agent replies carry
+  `▌ SICK · <live model>`; tool activity is steel-gray tree lines;
+  thinking is warm dim italic behind a `THINKING` hairline.
 - **Status bar:** structured fields — workspace · branch · state pill
-  (`● READY` / `◐ WORKING Ns`) · turns · tools. Not a sentence.
+  (`● READY` / `◐ WORKING Ns`) · sdlc/gate · plugins · turns · tools.
 - **Composer:** tall emerald border when focused; model/provider named in
   the border title area; hints quiet in the subtitle.
 
