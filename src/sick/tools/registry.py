@@ -48,6 +48,9 @@ class ToolRegistry:
         # so UIs can stream work as it happens (OpenCode-style). Event:
         # {tool, phase: start|done, summary, ok, duration_ms}
         self.activity: Callable[[dict], None] | None = None
+        # Optional AftermathGuard (sick.guard): check() may block a call
+        # before execution; record() observes every result.
+        self.guard: Any = None
 
     def _emit_activity(self, event: dict) -> None:
         if self.activity is not None:
@@ -87,14 +90,28 @@ class ToolRegistry:
             return ToolResult.failure(f"unknown tool: {name}", tool=name)
         summary = _summarize_args(kwargs)
         self._emit_activity({"tool": name, "phase": "start", "summary": summary, "ok": None, "duration_ms": 0})
+        block = None
+        if self.guard is not None:
+            try:
+                block = self.guard.check(name, kwargs)
+            except Exception:
+                block = None
         start = time.monotonic()
-        try:
-            result = wrap_result(name, tool.execute(**kwargs))
-        except Exception as e:  # tool raised instead of returning a result
-            result = ToolResult.failure(f"{type(e).__name__}: {e}", tool=name)
+        if block:
+            result = ToolResult.failure(block, tool=name)
+        else:
+            try:
+                result = wrap_result(name, tool.execute(**kwargs))
+            except Exception as e:  # tool raised instead of returning a result
+                result = ToolResult.failure(f"{type(e).__name__}: {e}", tool=name)
         result.tool = name
         result.duration_ms = round((time.monotonic() - start) * 1000)
         self._emit_activity({"tool": name, "phase": "done", "summary": summary, "ok": result.ok, "duration_ms": result.duration_ms})
+        if self.guard is not None:
+            try:
+                self.guard.record(name, result.ok, kwargs)
+            except Exception:
+                pass
         self._counts[name] = self._counts.get(name, 0) + 1
         if self.audit is not None:
             try:
