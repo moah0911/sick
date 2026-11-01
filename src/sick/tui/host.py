@@ -41,6 +41,18 @@ class TurnHost:
         if self._task:
             self._task.cancel()
 
+    def _in_git_repo(self) -> bool:
+        import subprocess
+
+        try:
+            r = subprocess.run(
+                ["git", "rev-parse", "--is-inside-work-tree"],
+                capture_output=True, timeout=3, cwd=self.agent.workspace,
+            )
+            return r.returncode == 0
+        except Exception:
+            return False
+
     def _on_before_turn(self, event) -> None:
         self._set_busy(True)
 
@@ -53,7 +65,11 @@ class TurnHost:
         self.chat.set_busy(busy)
 
     async def _dispatcher(self) -> None:
-        if "checkpoint" in self.agent.registry:
+        # Session-start checkpoint only inside a git repo: in a non-git
+        # workspace it always fails, and those failures polluted the audit
+        # log (and therefore /learn's "checkpoint fails most" lessons) on
+        # every single launch.
+        if "checkpoint" in self.agent.registry and self._in_git_repo():
             self.agent._call("checkpoint", message="session start")
         while True:
             try:
@@ -70,9 +86,11 @@ class TurnHost:
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
-                import traceback
-
-                self.chat.add_error(f"turn failed: {exc}\n{traceback.format_exc()[-1000:]}")
+                # Concise: the first line carries the actionable message
+                # (provider error, iteration limit, ...). A 4000-char
+                # traceback dump in chat helps nobody mid-session.
+                msg = str(exc).strip().splitlines()[0][:400] if str(exc).strip() else type(exc).__name__
+                self.chat.add_error(f"turn failed: {msg}")
             finally:
                 self._set_busy(False)
 

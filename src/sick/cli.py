@@ -20,7 +20,7 @@ try:
     except Exception:
         __version__ = _pkg_version("sick")
 except Exception:
-    __version__ = "0.2.7"
+    __version__ = "0.2.9"
 
 
 def main() -> None:

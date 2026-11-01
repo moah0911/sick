@@ -27,7 +27,10 @@ from sick.tools.base import ToolResult
 
 MUTATING_TOOLS = {"write_file", "edit_file", "self_write"}
 EXPLORATION_TOOLS = {"read_file", "grep", "glob", "code_research", "self_read", "load_skill"}
-VERIFY_RE = re.compile(r"(pytest|ruff|mypy|unittest|npm\s+test|pnpm\s+test|yarn\s+test|go\s+test|cargo\s+test)")
+VERIFY_RE = re.compile(
+    r"(pytest|ruff|mypy|unittest|npm\s+test|pnpm\s+test|yarn\s+test|go\s+test|cargo\s+test"
+    r"|python\d?\s+[^|&;]*\btest_[^\s]+\.py|python\d?\s+[^|&;]*[^\s]+_test\.py)"
+)
 DESTRUCTIVE_RE = re.compile(r"(\brm\s+-rf\b|DROP\s+TABLE|migrate|alembic)", re.IGNORECASE)
 RISKY_PATH_HINTS = ("pyproject.toml", "migration", "auth", "password", "security", "secret")
 

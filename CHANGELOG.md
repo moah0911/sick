@@ -1,4 +1,13 @@
 # Changelog
+## 0.2.9
+- Lint cleanup only (import formatting, unused test names); no behaviour change from 0.2.8
+
+## 0.2.8
+- Make /learn actually learn: structured `Lesson{trigger, root_cause, fix_applied, evidence, verified}` store (`~/.sick/lessons.json`) — candidates recorded by learn_brief, promoted to verified only when a delivered /learn run really edited sick via self_write, marked ineffective when the trigger recurs; verified lessons are injected into future prompts `learn.py`, `agent.py`
+- Stop /learn's failure loop: session-start checkpoint now only runs inside a git repo (its 20/20 failures in non-git workspaces were polluting the audit and every learn brief), learn protocol forbids retrying a failed checkpoint and caps exploration (3 reads, reply via message() early), blocked lessons deduped, turn errors render as one concise line `tui/host.py`, `learn.py`
+- Fix SDLC gate false negative: running a test file directly (`python test_x.py`) now counts as verification evidence, not just pytest-style commands `lifecycle.py`
+- Self-improvement targets a real checkout via $SICK_ROOT when set, so learned fixes survive reinstalls instead of editing site-packages `tools/self.py`
+
 ## 0.2.7
 - Live working feed (OpenCode-style): every tool call streams `▸ tool(args)` / `✓ tool · 0.3s` lines to the chat as it executes via a new `ToolRegistry.activity` hook; `LLMOutput` code previews render per iteration; status bar shows `working Ns · last: <tool> · llm calls N` with a 1s refresh `tools/registry.py`, `tui/app.py`
 - Fix blank screen while working: `ChatView.set_busy` set RichLog's built-in `loading` overlay, covering the entire chat (including the user's own message) with a spinner for the whole turn. Busy is now shown via border title, the height-1 indicator row, and the status bar only `tui/chat.py`

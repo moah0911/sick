@@ -60,6 +60,69 @@ def test_blocked_run_lessons_mined(tmp_path):
     assert "verification evidence" in lessons[0]
 
 
+def test_lesson_store_lifecycle(tmp_path):
+    from sick.learn import Lesson, LessonStore, analyze_audit
+
+    store = LessonStore(tmp_path / "lessons.json")
+    store.record(Lesson(trigger="tool:checkpoint", root_cause="non-git workspace", evidence=["a"]))
+    store.record(Lesson(trigger="tool:checkpoint", root_cause="non-git workspace", evidence=["b"]))
+    assert len(store.all()) == 1  # deduped by trigger+root_cause
+    assert store.all()[0].evidence == ["a", "b"]
+    done = store.complete_latest("host.py: skip checkpoint outside git")
+    assert done is not None and done.verified and "host.py" in done.fix_applied
+    assert store.relevant("checkpoint fails again")[0].trigger == "tool:checkpoint"
+    # recurrence escalates instead of repeating the same lesson forever
+    report = analyze_audit([{"tool": "checkpoint", "ok": False, "duration_ms": 1, "args": {}}])
+    escalated = store.escalate_recurring(report)
+    assert escalated and escalated[0].ineffective
+    assert store.relevant("checkpoint") == []
+
+
+def test_blocked_lessons_deduped(tmp_path):
+    import json
+
+    from sick.learn import blocked_run_lessons
+
+    for rid in ("r1", "r2"):
+        d = tmp_path / ".sick" / "runs" / rid
+        d.mkdir(parents=True)
+        (d / "verification.json").write_text(json.dumps(
+            {"allowed": False, "tier": "standard", "reasons": ["no verification evidence after last edit"]}
+        ))
+    lessons = blocked_run_lessons(tmp_path)
+    assert len(lessons) == 1
+
+
+def test_learn_prompt_never_retries_checkpoint(tmp_path):
+    from sick.learn import build_learn_prompt
+
+    prompt = build_learn_prompt("brief")
+    assert "not a git repository" in prompt and "do NOT retry" in prompt
+    assert "at most 3 files" in prompt and "message()" in prompt
+
+
+def test_python_test_file_counts_as_verification(tmp_path):
+    from sick.lifecycle import Lifecycle
+    from sick.tools.base import ToolResult
+
+    lc = Lifecycle(tmp_path)
+    run = lc.start("build tictactoe")
+    lc.record(run, ToolResult.success("Wrote", tool="write_file"), {"path": "test_tictactoe.py"})
+    lc.record(run, ToolResult.success("all pass", tool="bash"), {"command": "uv run python test_tictactoe.py"})
+    assert lc.can_deliver(run).allowed
+
+
+def test_self_source_prefers_sick_root_checkout(tmp_path, monkeypatch):
+    from sick.tools.self import SelfRead, resolve_source_root
+
+    checkout = tmp_path / "checkout" / "src" / "sick"
+    checkout.mkdir(parents=True)
+    (checkout / "agent.py").write_text("MARKER = 1\n")
+    monkeypatch.setenv("SICK_ROOT", str(tmp_path / "checkout"))
+    assert resolve_source_root() == checkout
+    assert "MARKER" in SelfRead().execute("agent.py").output
+
+
 def test_agent_learn_brief_records_lesson(tmp_path):
     from sick.agent import SickAgent
     from sick.memory import ExperienceMemory
