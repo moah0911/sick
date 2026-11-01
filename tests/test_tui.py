@@ -175,6 +175,10 @@ def test_connect_switches_provider_live(tmp_path, monkeypatch):
         out = await app.commands.dispatch(app, "/connect groq")
         assert "switched to groq" in out and "openai/gpt-oss-120b" in out
         assert agent._llm is not None
+        # header + /models must show the live client, not a re-detected default
+        assert "groq/openai/gpt-oss-120b" in app._model_str()
+        models_out = await app.commands.dispatch(app, "/models")
+        assert "groq/openai/gpt-oss-120b" in models_out
         out = await app.commands.dispatch(app, "/connect setup")
         assert "--setup" in out
         out = await app.commands.dispatch(app, "/connect bogus")

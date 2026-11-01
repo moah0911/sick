@@ -309,14 +309,18 @@ class SickApp(App):
                 pass
 
     def _model_str(self) -> str:
+        from sick.providers import client_model_name
+
+        live = client_model_name(self.agent)
+        if live:
+            return str(live)
         try:
             from sick.providers import detect
 
             p = detect()
             return f"{p.model_id} ({p.name})"
         except Exception:
-            llm = getattr(self.agent, "_llm", None)
-            return getattr(llm, "model", "no llm") if llm else "no llm"
+            return "no llm"
 
     def on_unmount(self) -> None:
         self.host.stop()

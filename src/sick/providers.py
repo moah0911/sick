@@ -8,6 +8,9 @@ from dotenv import load_dotenv
 from nooa.unifiedllm import UnifiedLLM
 from nooa.unifiedllm.registry import get_llm_client
 
+META_BASE_URL = "https://api.meta.ai/v1"
+META_MODEL = "muse-spark-1.3"
+
 GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 # Groq shut down llama-3.3-70b-versatile for free/developer tiers on
 # 2026-08-16; openai/gpt-oss-120b is Groq's recommended replacement
@@ -29,12 +32,14 @@ PROVIDER_KEYS = {
     "anthropic": "ANTHROPIC_API_KEY",
     "openai": "OPENAI_API_KEY",
     "groq": "GROQ_API_KEY",
+    "meta": "MODEL_API_KEY",
 }
 _PROVIDER_MENU = [
     ("nvidia", "NVIDIA NIM — get a key at https://build.nvidia.com"),
     ("anthropic", "Anthropic — get a key at https://console.anthropic.com"),
     ("openai", "OpenAI / OpenAI-compatible — get a key at https://platform.openai.com"),
     ("groq", "Groq — fast OpenAI-compatible inference at https://console.groq.com"),
+    ("meta", "Meta Model API (Muse Spark) — get a key at https://dev.meta.ai"),
 ]
 
 _ENV_KEYS = (
@@ -42,6 +47,8 @@ _ENV_KEYS = (
     "ANTHROPIC_API_KEY",
     "OPENAI_API_KEY",
     "GROQ_API_KEY",
+    "MODEL_API_KEY",
+    "META_API_KEY",
     "SICK_MODEL",
     "SICK_BASE_URL",
     "SICK_PROVIDER",
@@ -194,6 +201,8 @@ def prompt_for_api_key(env_path: str | Path, input_fn=input, secret_fn=None) -> 
             return False
     save_provider_config(env_path, provider, key, base_url=base_url, model=model)
     detail = f" (model: {GROQ_MODEL}, endpoint: {GROQ_BASE_URL})" if provider == "groq" else ""
+    if provider == "meta":
+        detail = f" (model: {META_MODEL}, endpoint: {META_BASE_URL})"
     print(f"saved {provider} to {env_path} (only you can read it){detail}. Starting sick…", file=out)
     print("note: *_API_KEY vars exported in your shell override .env — unset stale ones if sick picks the wrong provider.", file=out)
     return True
@@ -210,11 +219,31 @@ class LLMProvider(ABC):
     def create_llm(self) -> UnifiedLLM: ...
 
 
+NVIDIA_MODEL = "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"
+# The previous default `nvidia/llama-3.1-8b-instruct` never existed in
+# NVIDIA's hosted catalog (404 on every call), and Llama instruct models
+# have since left the catalog entirely. Saved configs naming a dead ID
+# migrate to the verified default instead of failing every turn.
+NVIDIA_MODEL_ALIASES = {
+    "llama-3.1-8b-instruct": NVIDIA_MODEL,
+    "nvidia/llama-3.1-8b-instruct": NVIDIA_MODEL,
+    "meta/llama-3.1-8b-instruct": NVIDIA_MODEL,
+    "meta/llama-3.3-70b-instruct": NVIDIA_MODEL,
+    "llama-3.3-70b-versatile": NVIDIA_MODEL,
+}
+
+
+def _normalize_nvidia_model(model: str | None) -> str:
+    name = (model or NVIDIA_MODEL).strip()
+    name = name.removeprefix("nvidia_nim/")
+    return NVIDIA_MODEL_ALIASES.get(name, name)
+
+
 class NVIDIA(LLMProvider):
     name = "nvidia"
 
-    def __init__(self, model: str = "nvidia/llama-3.1-8b-instruct"):
-        self._model = model
+    def __init__(self, model: str = NVIDIA_MODEL):
+        self._model = _normalize_nvidia_model(model)
 
     @property
     def model_id(self) -> str:
@@ -227,8 +256,35 @@ class NVIDIA(LLMProvider):
         return get_llm_client(
             f"nvidia_nim/{self._model}",
             api_key=key,
-            timeout=60,
+            timeout=120,
+            max_tokens=_max_output_tokens(),
+            retry_config=_fail_fast_retry_config(),
         )
+
+
+def _fail_fast_retry_config():
+    """Retry policy that surfaces provider errors in seconds, not minutes.
+
+    The NOOA default (3 + 3 extra retries, minute-long backoffs) turns
+    deterministic failures (oversized request, slow endpoint) into a
+    silent multi-minute hang. Two attempts max, short delays, then the
+    provider's real error reaches the user.
+    """
+    from nooa.unifiedllm import RetryConfig
+
+    return RetryConfig(
+        max_retries=1,
+        rate_limit_extra_retries=0,
+        rate_limit_base_delay=2.0,
+        max_delay=15.0,
+    )
+
+
+def _max_output_tokens(default: int = 4096) -> int:
+    try:
+        return max(256, min(int(os.environ.get("SICK_MAX_TOKENS", str(default))), 32768))
+    except ValueError:
+        return default
 
 
 class OpenAICompatible(LLMProvider):
@@ -288,22 +344,43 @@ class Groq(OpenAICompatible):
         # additional_drop_params is forwarded by get_llm_client to every
         # litellm completion, stripping it before the request is built.
         #
-        # Fail fast on rate limits: the default retry policy (3 + 3 extra
-        # retries, minute-long backoffs) turns Groq's deterministic
-        # "Request too large for model ... Limit 8000, Requested N" 413
-        # into a several-minute silent hang — retrying an oversized
-        # request can never succeed. Two attempts max, then the real
-        # Groq error surfaces to the user.
-        from nooa.unifiedllm import RetryConfig
-
+        # Fail fast on rate limits (see _fail_fast_retry_config): Groq's
+        # deterministic "Request too large ... Limit 8000" 413 must reach
+        # the user in seconds, not after minutes of silent retries.
         return {
             "additional_drop_params": ["prompt_cache_key"],
-            "retry_config": RetryConfig(
-                max_retries=1,
-                rate_limit_extra_retries=0,
-                rate_limit_base_delay=2.0,
-                max_delay=15.0,
-            ),
+            "retry_config": _fail_fast_retry_config(),
+        }
+
+
+class Meta(OpenAICompatible):
+    """Meta Model API (Muse Spark) — OpenAI-compatible, reasoning + tools.
+
+    Reached via litellm's OpenAI provider as openai/<model> with the Meta
+    base URL (Meta's documented LiteLLM recipe). The key is read from
+    MODEL_API_KEY (Meta's name); META_API_KEY is accepted as an alias.
+    prompt_cache_key, which NOOA injects, is *supported* by Meta — but
+    several other OpenAI params 400 on Muse Spark and are dropped.
+    """
+
+    name = "meta"
+    key_env = "MODEL_API_KEY"
+    # OpenAI params Meta Chat Completions rejects (docs: unsupported -> 400)
+    _UNSUPPORTED = ["stop", "verbosity", "logit_bias", "logprobs", "top_logprobs", "prediction", "web_search_options", "modalities", "audio"]
+
+    def __init__(self, model: str = META_MODEL, base_url: str | None = META_BASE_URL):
+        super().__init__(model or META_MODEL, base_url or META_BASE_URL)
+        if not os.environ.get("MODEL_API_KEY"):
+            self._key_fallback = os.environ.get("META_API_KEY")
+
+    def _client_model(self) -> str:
+        return self._model if self._model.startswith("openai/") else f"openai/{self._model}"
+
+    def _extra_client_kwargs(self) -> dict:
+        return {
+            "additional_drop_params": list(self._UNSUPPORTED),
+            "retry_config": _fail_fast_retry_config(),
+            "max_tokens": _max_output_tokens(),
         }
 
 
@@ -322,6 +399,19 @@ class Anthropic(LLMProvider):
         if not key:
             raise ValueError("ANTHROPIC_API_KEY not set")
         return get_llm_client(self._model, api_key=key, timeout=60)
+
+
+def client_model_name(agent) -> str | None:
+    """The model the agent's live LLM client is actually using.
+
+    Single source of truth for UI display: the header and /models must
+    show the running client (which honors --model and /connect switches),
+    never a fresh detect() that silently falls back to defaults.
+    """
+    llm = getattr(agent, "_llm", None) or getattr(agent, "llm", None)
+    if llm is None:
+        return None
+    return getattr(llm, "model", None) or getattr(llm, "model_id", None)
 
 
 def detect(model: str | None = None) -> LLMProvider:
@@ -346,18 +436,20 @@ def detect(model: str | None = None) -> LLMProvider:
 
     # explicit override
     if provider_override == "nvidia" and os.environ.get("NVIDIA_API_KEY"):
-        return NVIDIA(model or "nvidia/llama-3.1-8b-instruct")
+        return NVIDIA(model or NVIDIA_MODEL)
     if provider_override == "anthropic" and os.environ.get("ANTHROPIC_API_KEY"):
         return Anthropic(model or "claude-sonnet-4-20250514")
     if provider_override == "groq" and os.environ.get("GROQ_API_KEY"):
         return Groq(model or GROQ_MODEL)
+    if provider_override == "meta" and (os.environ.get("MODEL_API_KEY") or os.environ.get("META_API_KEY")):
+        return Meta(model if model and "muse" in model.lower() else META_MODEL)
     if provider_override in ("openai", "openai_compatible") and os.environ.get("OPENAI_API_KEY"):
         return OpenAICompatible(model or "gpt-4o-mini", base_url)
 
     # infer from model prefix if set
     if _model_matches(["nvidia"]):
         if os.environ.get("NVIDIA_API_KEY"):
-            return NVIDIA(model or "nvidia/llama-3.1-8b-instruct")
+            return NVIDIA(model or NVIDIA_MODEL)
     if _model_matches(["claude"]):
         if os.environ.get("ANTHROPIC_API_KEY"):
             return Anthropic(model or "claude-sonnet-4-20250514")
@@ -366,7 +458,7 @@ def detect(model: str | None = None) -> LLMProvider:
             return OpenAICompatible(model or "gpt-4o-mini", base_url)
 
     if os.environ.get("NVIDIA_API_KEY"):
-        return NVIDIA(model or "nvidia/llama-3.1-8b-instruct")
+        return NVIDIA(model or NVIDIA_MODEL)
 
     if os.environ.get("ANTHROPIC_API_KEY"):
         return Anthropic(model or "claude-sonnet-4-20250514")
@@ -377,11 +469,15 @@ def detect(model: str | None = None) -> LLMProvider:
     if os.environ.get("GROQ_API_KEY"):
         return Groq(model or GROQ_MODEL)
 
+    if os.environ.get("MODEL_API_KEY") or os.environ.get("META_API_KEY"):
+        return Meta(model if model and "muse" in model.lower() else META_MODEL)
+
     raise ValueError(
         "No LLM provider detected. Set one of:\n"
         "  NVIDIA_API_KEY\n"
         "  ANTHROPIC_API_KEY\n"
         "  OPENAI_API_KEY\n"
         "  GROQ_API_KEY\n"
+        "  MODEL_API_KEY (Meta Muse Spark)\n"
         "Or set SICK_MODEL + SICK_BASE_URL + OPENAI_API_KEY for custom endpoints."
     )

@@ -42,7 +42,7 @@ All configuration lives in `.env` (see [`.env.example`](.env.example)):
 
 Change provider or key any time with `sick --setup` (hidden key entry, works
 even when already configured) or switch live between saved providers in the
-TUI with `/connect groq|openai|nvidia|anthropic` — no restart, and stale
+TUI with `/connect groq|meta|openai|nvidia|anthropic` — no restart, and stale
 endpoints/models from the previous provider are cleared automatically.
 
 > **Groq free tier warning:** Groq's free (`on_demand`) plan caps chat models

@@ -1,4 +1,9 @@
 # Changelog
+## 0.2.6
+- Add Meta Model API (Muse Spark) as a first-class provider: `MODEL_API_KEY` (alias `META_API_KEY`), wizard option 5 in `sick --setup` (hidden prompt — no manual .env editing), `/connect meta` live switch, built-in `https://api.meta.ai/v1` + `muse-spark-1.3` via litellm `openai/` routing, Meta-unsupported params dropped, output capped, fail-fast retries `providers.py`, `agent.py`, `tui/commands.py`
+- Fix NVIDIA `404 page not found` on every turn: the default `nvidia/llama-3.1-8b-instruct` never existed in NVIDIA's hosted catalog, and Llama instruct models have since left it. Verified against the live catalog (85 models) + tool-call probes on the target account: new default `nvidia/nemotron-3-nano-omni-30b-a3b-reasoning` (responds and calls tools on small prompts; full agent prompts on NVIDIA's free endpoints remain slow — output now capped and retries fail fast instead of cascading for minutes) `providers.py`
+- Fix model display lying: header and `/models` now show the agent's live client model (`providers.client_model_name`) instead of re-running `detect()` — `--model` and `/connect` switches are now visible truthfully `tui/app.py`, `tui/commands.py`
+
 ## 0.2.5
 - Fix blank "thinking…" screen on Groq: root cause was Groq free-tier 8k TPM vs Sick's ~24k-token agent request, retried silently 7× with minute-long backoffs. Sick context diet cut the request to ~14.6k (skills index capped at 6k chars in `skills.py`, Remotion context is now an on-demand pointer in `agent.py`), Groq clients fail fast (max 2 attempts, `providers.py`), and CLI turns surface the real provider error + an actionable hint instead of a traceback or silent hang `cli.py`
 - Show model thinking live: TUI subscribes to NOOA `LLMComplete` events and renders `reasoning_content` dimmed via `ChatView.add_thinking`; `/thinking` now actually controls it and defaults to visible (previously a placebo toggle) `tui/app.py`, `tui/chat.py`
