@@ -20,7 +20,6 @@ from pathlib import Path
 from typing import Any
 
 MUTATING_TOOLS = {"write_file", "edit_file", "self_write"}
-VERIFY_HINT = re.compile(r"(pytest|ruff|mypy|unittest|test_)", re.IGNORECASE)
 
 _DESTRUCTIVE = [
     (re.compile(r"\bgit\s+push\b.*(--force|-f\b)"), "force push"),
@@ -72,7 +71,8 @@ class AftermathGuard:
         if tool in MUTATING_TOOLS and self.frozen and self.active:
             return (
                 f"[aftermath: edits frozen — unresolved failure ({self.last_error}). "
-                "Get a verification green, /aftermath-revert, or /aftermath lite|off]"
+                "To unfreeze: run the failing verification until it passes (e.g. pytest). "
+                "Do NOT keep exploring or reading files — fix the failure or report the blocker.]"
             )
         return None
 
@@ -108,18 +108,31 @@ class AftermathGuard:
         return True
 
     def record(self, tool: str, ok: bool, kwargs: dict[str, Any]) -> None:
-        """Observe a tool result: freeze on failure, thaw on verification."""
+        """Observe a tool result: freeze only on work-breaking failures.
+
+        Benign exploration failures (cat/ls/grep on missing files, a read
+        that misses) go to the ledger but never freeze — freezing on them
+        trapped the agent in explore-only loops (0.4.0 pomodoro failure).
+        Freeze triggers: failed verification, failed mutation, failed restore.
+        """
         if self.mode == "off":
             return
         key = f"{tool}:{str(kwargs)[:80]}"
         if not ok:
             self.attempts[key] += 1
-            self.frozen = True
-            self.last_error = key
+            from sick.lifecycle import VERIFY_RE
+
+            is_verification = tool == "bash" and bool(VERIFY_RE.search(str(kwargs.get("command", ""))))
+            if is_verification or tool in MUTATING_TOOLS or tool == "restore":
+                self.frozen = True
+                self.last_error = key
             return
         if tool == "restore":
             self.frozen = False
             self.last_error = ""
-        elif tool == "bash" and VERIFY_HINT.search(str(kwargs.get("command", ""))):
-            self.frozen = False
-            self.last_error = ""
+        elif tool == "bash":
+            from sick.lifecycle import VERIFY_RE
+
+            if VERIFY_RE.search(str(kwargs.get("command", ""))):
+                self.frozen = False
+                self.last_error = ""

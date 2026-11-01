@@ -250,6 +250,7 @@ class SickApp(App):
             f"workspace: `{ws}` ({self._branch or 'no git'})",
             f"model: `{self._model_str()}`",
             *self._sdlc_panel_lines(run),
+            f"  steps   {sum(1 for s in run.plan_steps if s['done'])}/{len(run.plan_steps)} done" if run is not None else "  steps   —",
             "SESSION",
             f"  turns   {getattr(self.agent, 'turns', 0)}",
             f"  tools   {tools}",

@@ -73,6 +73,27 @@ def test_design_check_blocks_duplicate_definitions(tmp_path):
     assert any("duplicate" in r for r in verdict.reasons)
 
 
+def test_registry_circuit_breaker_on_repeat_failures():
+    reg = ToolRegistry()
+    reg.register(_FakeTool(ToolResult.failure("Error: boom", tool="fake")))
+    reg.call("fake", path="x.py")
+    reg.call("fake", path="x.py")
+    third = reg.call("fake", path="x.py")
+    assert "circuit breaker" in third.output
+    assert "change approach" in third.output
+
+
+def test_progress_breaker_counts_calls_since_mutation(tmp_path):
+    lc = Lifecycle(tmp_path)
+    run = lc.start("build a thing")
+    for _ in range(6):
+        lc.record(run, ToolResult.success("listing", tool="bash"), {"command": "ls"})
+    assert run.calls_since_progress >= 6
+    lc.record(run, ToolResult.success("Wrote", tool="write_file"), {"path": "a.py"})
+    assert run.calls_since_progress == 0
+    assert any(s["done"] for s in run.plan_steps if s["name"] == "implement")
+
+
 def test_skill_routing_finds_installed_skill(tmp_path):
     skills = tmp_path / "skills-home"
     (skills / "codebase-design").mkdir(parents=True)

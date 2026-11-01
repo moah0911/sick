@@ -295,8 +295,39 @@ class SickAgent(InteractiveAgent):
     # ── lifecycle ──
 
     def _record_lifecycle(self, result: ToolResult, args: dict) -> None:
-        if self.current_run is not None:
-            self.lifecycle.record(self.current_run, result, args)
+        if self.current_run is None:
+            return
+        self.lifecycle.record(self.current_run, result, args)
+        run = self.current_run
+        # Progress circuit breaker: no mutation/verification in 6 calls
+        # means the model is looping (re-reading, re-listing). Say so in
+        # the tool result itself, where the model reads execution output.
+        if run.calls_since_progress >= 6 and isinstance(result.output, str):
+            result.output += (
+                f"\n[progress: no file changed and no verification passed in "
+                f"{run.calls_since_progress} calls — state your blocker in one "
+                "line, then take the smallest writable step; do not re-read "
+                "files you already have]"
+            )
+        if run.verify_failures >= 3 and isinstance(result.output, str):
+            result.output += (
+                "\n[verification failed 3 times — this step is blocked; "
+                "fix the root cause or summarize what's blocked]"
+            )
+        # Frozen state the model cannot miss (live context, refreshed
+        # on every tool result while the guard is frozen).
+        try:
+            if self.guard.frozen:
+                self.context["aftermath_state"] = (
+                    "## aftermath (FROZEN)\n"
+                    f"Edits are frozen because: {self.guard.last_error}. "
+                    "Unfreeze ONLY by running the failing verification until "
+                    "it passes. Do not keep exploring or reading files."
+                )
+            elif "aftermath_state" in self.context:
+                del self.context["aftermath_state"]
+        except Exception:
+            pass
 
     def begin_run(self, task: str, *, planned: bool = False, approved: bool = False) -> Run:
         """Start an evidence-gated SDLC run and route phase skills.

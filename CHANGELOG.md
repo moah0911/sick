@@ -1,4 +1,9 @@
 # Changelog
+## 0.5.0
+- Fix the pomodoro trap (agent looped 25 iterations, delivered nothing): aftermath guard now freezes only on verification/mutation failures — benign exploration (cat/ls/grep misses) never freezes; frozen state is injected into the model's live context with recovery instructions `guard.py`, `agent.py`
+- Circuit breakers against loops: 3rd identical failing call returns a change-approach instruction; 6+ calls without a mutation/verification inject a progress warning into the tool result; 3 verification failures mark the step blocked `tools/registry.py`, `lifecycle.py`, `agent.py`
+- Bigger-task structure: persisted plan steps (explore/implement/verify/summarize in run artifacts + `/status`), iteration budget raised 25 → 60 now that progress breakers are the real guardrail, graded eval suite `scripts/eval_suite.py` (hello/pomodoro/crud/refactor with machine-checked acceptance)
+
 ## 0.4.1
 - Remove the sidebar: chat is full-width at every terminal size (the fixed-width panel clipped on the right), status/gate/plugins compress into the status bar, full detail moves to a new `/status` command; both scrollbars hidden (stock-blue bars gone, scrolling unchanged) `tui/app.py`
 - Message differentiation: hairline turn separators with number + clock, user blocks on a raised ground, agent headers name the live model, tool lines (steel) vs thinking (warm dim) strata `tui/chat.py`

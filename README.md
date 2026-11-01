@@ -268,6 +268,7 @@ uv run python demos/web_research.py     # fetch_url SSRF + truncation
 uv run python demos/visual_demo.py      # /visual slash + real filesystem scaffold
 uv run python demos/hello.py            # fibonacci + verify
 uv run python demos/sdlc_gate.py        # SDLC gate: unverified edit blocked, verified delivered (no LLM)
+uv run python scripts/eval_suite.py     # graded live evals: hello/pomodoro/crud/refactor, pass + time + tool counts
 uv run python demos/self_evolve.py      # modify_self ping demo
 ```
 

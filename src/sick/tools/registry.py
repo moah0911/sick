@@ -51,6 +51,8 @@ class ToolRegistry:
         # Optional AftermathGuard (sick.guard): check() may block a call
         # before execution; record() observes every result.
         self.guard: Any = None
+        self._fail_key: str = ""
+        self._fail_streak: int = 0
 
     def _emit_activity(self, event: dict) -> None:
         if self.activity is not None:
@@ -106,6 +108,21 @@ class ToolRegistry:
                 result = ToolResult.failure(f"{type(e).__name__}: {e}", tool=name)
         result.tool = name
         result.duration_ms = round((time.monotonic() - start) * 1000)
+        # Repeat-call circuit breaker: the same failing call 3x in a row
+        # gets a hard change-approach instruction in its result, where
+        # the model actually reads it (breaks ls/cat exploration loops).
+        fail_key = f"{name}:{kwargs}"
+        if result.ok:
+            self._fail_key, self._fail_streak = "", 0
+        elif fail_key == self._fail_key:
+            self._fail_streak += 1
+        else:
+            self._fail_key, self._fail_streak = fail_key, 1
+        if not result.ok and self._fail_streak >= 3 and isinstance(result.output, str):
+            result.output += (
+                "\n[circuit breaker: same call failed 3 times — change approach "
+                "or report the blocker; do not repeat it]"
+            )
         self._emit_activity({"tool": name, "phase": "done", "summary": summary, "ok": result.ok, "duration_ms": result.duration_ms})
         if self.guard is not None:
             try:
