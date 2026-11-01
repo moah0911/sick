@@ -47,6 +47,22 @@ def test_guard_blocks_destructive_and_freezes_edits(tmp_path):
     assert g.check("write_file", {"path": "a.py"}) is None
 
 
+def test_guard_benign_exploration_never_freezes(tmp_path):
+    """The 0.4.0 pomodoro trap: a missing-file cat must not freeze edits."""
+    from sick.guard import AftermathGuard
+
+    g = AftermathGuard(tmp_path, mode="full")
+    g.record("bash", False, {"command": "cat pomodoro.py"})
+    g.record("bash", False, {"command": "ls missing_dir"})
+    g.record("read_file", False, {"path": "nope.py"})
+    assert not g.frozen
+    assert g.check("write_file", {"path": "pomodoro.py"}) is None
+    # but a failing verification does freeze
+    g.record("bash", False, {"command": "uv run pytest test_pomodoro.py -q"})
+    assert g.frozen
+    assert "run the failing verification" in (g.check("write_file", {"path": "pomodoro.py"}) or "")
+
+
 def test_guard_lite_warns_off_disables(tmp_path):
     from sick.guard import AftermathGuard
 
@@ -66,12 +82,29 @@ def test_guard_via_agent_registry(tmp_path):
     assert "aftermath: blocked" in out
     entries = agent.audit.entries()
     assert entries and entries[-1]["tool"] == "bash" and entries[-1]["ok"] is False
-    # frozen now: edits refused until verification
-    out = agent.write_file("a.py", "x = 1\n")
-    assert "aftermath: edits frozen" in out
+    # a blocked destructive command is ledger-only now (no freeze);
+    # freeze comes from verification/mutation failures (see guard tests)
+    assert agent.write_file("a.py", "x = 1\n").startswith("Wrote")
     result = agent.set_aftermath_mode("off")
     assert "off" in result
-    assert agent.write_file("a.py", "x = 1\n").startswith("Wrote")
+
+
+def test_agent_screenshot_sequence_now_recovers(tmp_path):
+    """cat-miss -> write works -> pytest fails -> writes frozen with instructions."""
+    from sick.agent import SickAgent
+
+    agent = SickAgent(workspace=tmp_path)
+    agent.begin_run("build pomodoro")
+    agent.bash("cat pomodoro.py")  # benign miss
+    assert agent.write_file("pomodoro.py", "x = 1\n").startswith("Wrote")
+    assert "aftermath_state" not in agent.context
+    agent.bash("python -m pytest -q")  # no tests collected -> fails (exit 5)
+    assert agent.guard.frozen
+    assert "aftermath_state" in agent.context  # model cannot miss it
+    blocked = agent.write_file("pomodoro.py", "x = 2\n")
+    assert "aftermath: edits frozen" in blocked
+    agent.set_aftermath_mode("off")
+    assert agent.write_file("pomodoro.py", "x = 2\n").startswith("Wrote")
 
 
 def test_ponytail_debt_command_harvests(tmp_path):

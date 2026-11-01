@@ -20,7 +20,7 @@ try:
     except Exception:
         __version__ = _pkg_version("sick")
 except Exception:
-    __version__ = "0.4.1"
+    __version__ = "0.5.0"
 
 
 def main() -> None:
@@ -31,7 +31,7 @@ def main() -> None:
     parser.add_argument("--attach", action="append", default=[], help="Attach a file (PDF parsed via Docling)")
     parser.add_argument("--workspace", default=None, help="Project directory to work in (default: .)")
     parser.add_argument("--model", default=None, help="Override the LLM model")
-    parser.add_argument("--max-iterations", type=int, default=25, help="CodeAct max iterations")
+    parser.add_argument("--max-iterations", type=int, default=60, help="CodeAct max iterations (progress circuit breakers guard against loops well before this)")
     parser.add_argument("--sandbox", action="store_true", help="Run bash inside a bwrap sandbox (beta)")
     parser.add_argument("--preflight", action="store_true", help="Run health checks and exit")
     parser.add_argument("--setup", action="store_true", help="Configure/change the LLM provider + API key (hidden input), then start")

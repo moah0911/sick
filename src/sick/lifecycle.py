@@ -89,6 +89,14 @@ class Run:
     checkpointed: bool = False
     risky_flags: list[str] = field(default_factory=list)
     skills: dict[str, str] = field(default_factory=dict)
+    calls_since_progress: int = 0
+    verify_failures: int = 0
+    plan_steps: list[dict[str, Any]] = field(default_factory=lambda: [
+        {"name": "explore", "done": False},
+        {"name": "implement", "done": False},
+        {"name": "verify", "done": False},
+        {"name": "summarize", "done": False},
+    ])
     design_issues: list[DesignIssue] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     outcome: str = ""
@@ -161,15 +169,24 @@ class Lifecycle:
 
     # ── phase observation from real tool results ──
 
+    def _step(self, run: Run, name: str) -> None:
+        for step in run.plan_steps:
+            if step["name"] == name:
+                step["done"] = True
+
     def record(self, run: Run, result: ToolResult, args: dict[str, Any] | None = None) -> None:
         args = args or {}
         run.seq += 1
+        run.calls_since_progress += 1
         tool = result.tool or ""
         if tool in EXPLORATION_TOOLS and not run.mutations:
             run.explored = True
+            self._step(run, "explore")
             if run.phase in (Phase.REQUIREMENTS, Phase.INTAKE):
                 run.phase = Phase.DESIGN
         if tool in MUTATING_TOOLS and result.ok:
+            run.calls_since_progress = 0
+            self._step(run, "implement")
             if not run.explored and not run.plan_created and not run.mutations:
                 run.warnings.append(f"{tool} mutated before any exploration/plan")
             path = str(args.get("path", ""))
@@ -184,10 +201,16 @@ class Lifecycle:
             command = str(args.get("command", ""))
             if DESTRUCTIVE_RE.search(command):
                 run.risky_flags.append("destructive/migration bash")
-            if result.ok and VERIFY_RE.search(command):
-                run.evidences.append(Evidence(tool=tool, detail=command[:120], seq=run.seq, at=time.time()))
-                if run.mutations:
-                    run.phase = Phase.VERIFY
+            if VERIFY_RE.search(command):
+                if result.ok:
+                    run.calls_since_progress = 0
+                    run.verify_failures = 0
+                    self._step(run, "verify")
+                    run.evidences.append(Evidence(tool=tool, detail=command[:120], seq=run.seq, at=time.time()))
+                    if run.mutations:
+                        run.phase = Phase.VERIFY
+                else:
+                    run.verify_failures += 1
         if tool == "checkpoint" and result.ok and "checkpoint created" in str(result.output):
             run.checkpointed = True
         run.tier = self.classify(run)
@@ -261,11 +284,18 @@ class Lifecycle:
             f"Changed files: {', '.join(run.changed_files) or 'none'}\n"
             f"Skills routed: {json.dumps(run.skills)}\nWarnings: {'; '.join(run.warnings) or 'none'}\n",
         )
+        if verdict.allowed:
+            self._step(run, "summarize")
+        checks = "\n".join(f"- [{'x' if s['done'] else ' '}] {s['name']}" for s in run.plan_steps)
+        self.add_artifact(run, "plan.md", f"# Plan\n\nTask: {run.task}\n\n{checks}\n")
         verification = {
             "tier": run.tier.value, "allowed": verdict.allowed, "reasons": verdict.reasons,
             "evidence": [e.__dict__ for e in run.evidences],
             "mutations": run.mutations,
             "design_issues": [i.__dict__ for i in run.design_issues],
+            "plan_steps": run.plan_steps,
+            "calls_since_progress": run.calls_since_progress,
+            "verify_failures": run.verify_failures,
         }
         run.dir.mkdir(parents=True, exist_ok=True)
         (run.dir / "verification.json").write_text(json.dumps(verification, indent=2, default=str))
