@@ -11,6 +11,8 @@ class SickConfig(BaseModel):
     excluded: list[str] = Field(default_factory=list)
     tracing: bool = False
     command: dict = Field(default_factory=dict)
+    ponytail: str = "full"
+    aftermath: str = "full"
 
     @field_validator("excluded", mode="before")
     @classmethod

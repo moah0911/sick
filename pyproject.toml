@@ -1,6 +1,6 @@
 [project]
 name = "sick-agent"
-version = "0.3.0"
+version = "0.4.0"
 description = "Self-improving coding agent built on the NOOA framework"
 readme = "README.md"
 requires-python = ">=3.12"

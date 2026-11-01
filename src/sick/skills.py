@@ -30,7 +30,14 @@ def skills_dirs(workspace: str | Path | None = None) -> list[Path]:
         or os.environ.get("SICK_REMOTION_DIR")
         or (Path.home() / ".agents" / "skills")
     )
-    dirs = [base, Path.home() / ".sick" / "skills"]
+    dirs = []
+    try:
+        from sick.plugins import bundled_skills_dirs
+
+        dirs += bundled_skills_dirs()  # lowest precedence: defaults, overridable
+    except Exception:
+        pass
+    dirs += [base, Path.home() / ".sick" / "skills"]
     if workspace is not None:
         dirs.append(Path(workspace) / ".sick" / "skills")
     return dirs

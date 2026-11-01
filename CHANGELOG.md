@@ -1,4 +1,8 @@
 # Changelog
+## 0.4.0
+- Default plugins are now the real plugins, vendored pinned (`src/sick/bundled/`, `BUNDLED.md` manifest, `scripts/update_bundled_plugins.py`): Ponytail (DietrichGebert/ponytail @96608e0) full SKILL.md always-on with `/ponytail [lite|full|ultra|off]`, `/ponytail-review`, `/ponytail-audit`, `/ponytail-debt`, `/ponytail-help`; Aftermath (moah0911/aftermath @c6e11fa) ladder always-on, 8 playbooks discoverable, `/aftermath [lite|full|ultra|off]`, `/aftermath-status`, `/aftermath-revert`, `/aftermath-log`, `/aftermath-audit`
+- Aftermath enforcement in code at the ToolRegistry seam (`sick/guard.py`, default `full`): destructive commands blocked (path-aware via `.aftermath/config.json`), forward edits frozen while a failure is unresolved, repeat-attempt ledger; sidebar shows plugin states
+
 ## 0.3.0
 - Premium TUI redesign (anti-slop, Operate mode — see DESIGN.md): precision-instrument identity with layered near-black tokens, sharp borders, left-rule message components with syntax-highlighted code, tree-glyph tool feed, hairline THINKING label, structured status fields, and a live SDLC phase tracker in the sidebar (requirements → design → implement → verify → deliver + gate verdict + routed skill) `tui/app.py`, `tui/chat.py`, `DESIGN.md`
 - Skills handling upgraded: task-relevance-ranked skills index (replaces alphabetical truncation), keyword-family phase routing that matches real installed skills, `load_skill` is now a registered tool (audited, counted, streamed in the live feed, fixes a registry arg collision it exposed), new `/skills` command grouped by source with per-run routing `skills.py`, `lifecycle.py`, `tools/skill.py`, `agent.py`

@@ -123,7 +123,8 @@ result = agent.parse_pdf("docs/report.pdf")
 
 | Skill | Description | Status |
 |-------|-------------|--------|
-| **ponytail** (always) | Lazy-first philosophy: shortest correct solution, no over-engineering | Always active |
+| **ponytail** (always, real plugin) | The actual vendored Ponytail skill (github.com/DietrichGebert/ponytail, pinned — see `src/sick/bundled/BUNDLED.md`): lazy-senior-dev ladder, levels via `/ponytail [lite|full|ultra|off]`, plus `/ponytail-review`, `/ponytail-audit`, `/ponytail-debt` | Always active |
+| **aftermath** (always, real plugin) | The actual vendored Aftermath recovery skill (github.com/moah0911/aftermath, pinned): failure ladder in context + enforcement in code — destructive commands blocked, forward edits frozen after unresolved failures at `full` (default), `/aftermath [lite|full|ultra|off]`, `/aftermath-status`, `/aftermath-revert`, `/aftermath-log` | Always active |
 | **PDF handling** | Parse PDFs via Docling — clean Markdown, not raw binary | Always active |
 | **Remotion** | Create explanatory videos: Remotion scaffold, markup, render | Always active |
 | **SDLC & OO** | Runtime-enforced lifecycle (`sick.lifecycle`): phases observed from tool results, delivery blocked without post-edit verification evidence; OO via `ToolResult`/`ToolRegistry` deep modules | Always active |

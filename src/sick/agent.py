@@ -109,11 +109,36 @@ without verification evidence after the last edit. Prefer OO structure where
 it earns its keep (deep modules, small interfaces); flat code wins otherwise."""
 
 
+def _ponytail_context(mode: str) -> str:
+    """The real vendored ponytail SKILL.md body (fallback: legacy summary)."""
+    from sick.plugins import ponytail_body
+
+    if mode == "off":
+        return "## ponytail\n(off — `/ponytail full` to re-enable)"
+    body = ponytail_body() or PONYTAIL_PROMPT
+    return f"## ponytail (always active, mode: {mode})\n{body}"
+
+
 class PonytailSkill(Skill):
     context_block = ("ponytail", PONYTAIL_PROMPT)
 
     def attach(self, agent):
-        agent.context["ponytail"] = PONYTAIL_PROMPT
+        agent.context["ponytail"] = _ponytail_context(getattr(agent, "ponytail_mode", "full"))
+
+
+class AftermathSkill(Skill):
+    context_block = ("aftermath", "")
+
+    def attach(self, agent):
+        from sick.plugins import aftermath_ladder
+
+        mode = getattr(agent, "aftermath_mode", "full")
+        ladder = aftermath_ladder()
+        agent.context["aftermath"] = (
+            f"## aftermath (post-failure recovery, mode: {mode})\n{ladder}"
+            if ladder
+            else f"## aftermath (mode: {mode})\nOn any failure: stop, revert cheap changes first, never repeat a failed fix blindly."
+        )
 
 
 class PDFSkill(Skill):
@@ -170,6 +195,12 @@ class SickAgent(InteractiveAgent):
             raise ValueError(f"workspace is not a directory: {workspace}")
 
         cfg = load_config(self.workspace)
+        self.ponytail_mode = (os.environ.get("SICK_PONYTAIL_MODE") or cfg.get("ponytail") or "full").lower()
+        if self.ponytail_mode not in ("lite", "full", "ultra", "off"):
+            self.ponytail_mode = "full"
+        self.aftermath_mode = (os.environ.get("SICK_AFTERMATH_MODE") or cfg.get("aftermath") or "full").lower()
+        if self.aftermath_mode not in ("lite", "full", "ultra", "off"):
+            self.aftermath_mode = "full"
         self.audit = AuditLog(self.workspace)
         self.lifecycle = Lifecycle(self.workspace)
         self.current_run: Run | None = None
@@ -200,7 +231,13 @@ class SickAgent(InteractiveAgent):
             t.excluded = merged_excluded
             self.registry.register(t)
 
+        from sick.guard import AftermathGuard
+
+        self.guard = AftermathGuard(self.workspace, mode=self.aftermath_mode)
+        self.registry.guard = self.guard
+
         self._register_skill(PonytailSkill())
+        self._register_skill(AftermathSkill())
         self._register_skill(PDFSkill())
         self._register_skill(RemotionSkill())
         self._register_skill(SdlcSkill())
@@ -347,6 +384,33 @@ class SickAgent(InteractiveAgent):
             pass
         active = detect()
         return f"switched to {provider}: `{active.model_id}` via {active.name} (live, no restart)"
+
+    def set_ponytail_mode(self, mode: str) -> str:
+        mode = mode.strip().lower()
+        if mode not in ("lite", "full", "ultra", "off"):
+            return f"unknown ponytail mode `{mode}` — choose lite|full|ultra|off"
+        self.ponytail_mode = mode
+        self.context["ponytail"] = _ponytail_context(mode)
+        return f"ponytail: {mode}"
+
+    def set_aftermath_mode(self, mode: str) -> str:
+        mode = mode.strip().lower()
+        if mode not in ("lite", "full", "ultra", "off"):
+            return f"unknown aftermath mode `{mode}` — choose lite|full|ultra|off"
+        self.aftermath_mode = mode
+        self.guard.mode = mode
+        if mode in ("lite", "off"):
+            self.guard.frozen = False
+        return f"aftermath: {self.guard.state()}"
+
+    def aftermath_status(self) -> str:
+        lines = [f"aftermath: {self.guard.state()} (mode {self.guard.mode})"]
+        if self.guard.attempts:
+            lines.append("attempt ledger:")
+            for key, count in self.guard.attempts.most_common(5):
+                lines.append(f"  - {key}: {count} failed attempt(s)")
+        lines.append("checkpoint: use `/checkpoint`; revert with `/aftermath-revert`")
+        return "\n".join(lines)
 
     # ── tool proxy methods (rendered output for the LLM; ToolResult inside) ──
 

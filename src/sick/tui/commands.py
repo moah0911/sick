@@ -25,6 +25,7 @@ class SlashCommand:
 _HELP_GROUPS: list[tuple[str, list[str]]] = [
     ("session", ["clear", "sessions", "compact", "export", "undo", "redo"]),
     ("work", ["plan", "approve", "reject", "run", "visual", "learn"]),
+    ("plugins", ["ponytail", "ponytail-review", "ponytail-audit", "ponytail-debt", "ponytail-help", "aftermath", "aftermath-status", "aftermath-revert", "aftermath-log", "aftermath-audit"]),
     ("git & history", ["checkpoint", "restore", "checkpoints", "audit", "stats"]),
     ("view & setup", ["models", "skills", "details", "thinking", "themes", "connect", "editor", "init", "update", "version", "help", "exit"]),
 ]
@@ -554,7 +555,7 @@ class VersionCommand(SlashCommand):
 
             v = _v("sick-agent")
         except Exception:
-            v = "0.3.0"
+            v = "0.4.0"
         return f"sick {v}"
 
 
@@ -697,6 +698,142 @@ class SessionsCommand(SlashCommand):
         return "\n".join(lines)
 
 
+def _persist_plugin_mode(app: SickApp, key: str, value: str) -> None:
+    try:
+        cfg_dir = Path(getattr(app.agent, "workspace", ".")) / ".sick"
+        cfg_dir.mkdir(parents=True, exist_ok=True)
+        cfg = cfg_dir / "config.toml"
+        lines = cfg.read_text().splitlines() if cfg.exists() else []
+        lines = [ln for ln in lines if not ln.strip().startswith(f"{key} =")]
+        lines.append(f'{key} = "{value}"')
+        cfg.write_text("\n".join(lines) + "\n")
+    except Exception:
+        pass
+
+
+class PonytailCommand(SlashCommand):
+    name = "ponytail"
+    hint = "ponytail level: /ponytail [lite|full|ultra|off]"
+
+    async def run(self, app: SickApp, args: str) -> str | None:
+        want = args.strip().lower()
+        if not want:
+            return f"ponytail: {getattr(app.agent, 'ponytail_mode', 'full')} (real bundled skill, see /ponytail-help)"
+        out = str(app.agent.set_ponytail_mode(want))
+        if "unknown" not in out:
+            _persist_plugin_mode(app, "ponytail", want)
+        return out
+
+
+class PonytailReviewCommand(SlashCommand):
+    name = "ponytail-review"
+    hint = "review the current diff like the senior dev who gets paged"
+
+    async def run(self, app: SickApp, args: str) -> str | None:
+        target = args.strip() or "uncommitted"
+        await app._send(
+            f"Load the bundled skill with load_skill('ponytail-review') and review the {target} diff "
+            "following it exactly: bugs, security, real load, risky code without tests, slow paths, what to cut.",
+            show=False,
+        )
+        return f"ponytail review started ({target})"
+
+
+class PonytailAuditCommand(SlashCommand):
+    name = "ponytail-audit"
+    hint = "audit the whole repo, most important first"
+
+    async def run(self, app: SickApp, args: str) -> str | None:
+        await app._send(
+            "Load the bundled skill with load_skill('ponytail-audit') and audit this whole repo "
+            "following it exactly. Rank findings, most important first.",
+            show=False,
+        )
+        return "ponytail audit started"
+
+
+class PonytailDebtCommand(SlashCommand):
+    name = "ponytail-debt"
+    hint = "harvest shortcut: comments into a ledger"
+
+    async def run(self, app: SickApp, args: str) -> str | None:
+        hits = app.agent.grep(r"shortcut:")
+        if not hits or (hits and hits[0].startswith("Error:")):
+            return "ponytail debt: no `shortcut:` comments found"
+        lines = [f"## ponytail debt ({len(hits)})"] + [f"- {h}" for h in hits[:30]]
+        return "\n".join(lines)
+
+
+class PonytailHelpCommand(SlashCommand):
+    name = "ponytail-help"
+    hint = "ponytail quick reference (bundled skill)"
+
+    async def run(self, app: SickApp, args: str) -> str | None:
+        from sick.plugins import ponytail_skill_body
+
+        return ponytail_skill_body("ponytail-help")[:6000] or "ponytail help unavailable (bundled files missing)"
+
+
+class AftermathCommand(SlashCommand):
+    name = "aftermath"
+    hint = "aftermath recovery level: /aftermath [lite|full|ultra|off]"
+
+    async def run(self, app: SickApp, args: str) -> str | None:
+        want = args.strip().lower()
+        if not want:
+            return str(app.agent.aftermath_status())
+        out = str(app.agent.set_aftermath_mode(want))
+        if "unknown" not in out:
+            _persist_plugin_mode(app, "aftermath", want)
+        return out
+
+
+class AftermathStatusCommand(SlashCommand):
+    name = "aftermath-status"
+    hint = "what changed / failure + guard state"
+
+    async def run(self, app: SickApp, args: str) -> str | None:
+        return str(app.agent.aftermath_status())
+
+
+class AftermathRevertCommand(SlashCommand):
+    name = "aftermath-revert"
+    hint = "undo the last change set via checkpoint restore"
+
+    async def run(self, app: SickApp, args: str) -> str | None:
+        out = str(app.agent.restore(1))
+        if "restored" in out:
+            app.agent.guard.frozen = False
+        return out
+
+
+class AftermathLogCommand(SlashCommand):
+    name = "aftermath-log"
+    hint = "append a one-line postmortem to AFTERMATH.log"
+
+    async def run(self, app: SickApp, args: str) -> str | None:
+        import time
+
+        text = args.strip() or "postmortem"
+        path = Path(getattr(app.agent, "workspace", ".")) / "AFTERMATH.log"
+        with path.open("a") as f:
+            f.write(f"{time.strftime('%Y-%m-%d %H:%M')} {text}\n")
+        return f"logged to {path.name}"
+
+
+class AftermathAuditCommand(SlashCommand):
+    name = "aftermath-audit"
+    hint = "scan the diff for scope creep (bundled aftermath skill)"
+
+    async def run(self, app: SickApp, args: str) -> str | None:
+        await app._send(
+            "Load the bundled skill with load_skill('aftermath') and scan the current diff for "
+            "scope creep following it exactly. Report only what the evidence shows.",
+            show=False,
+        )
+        return "aftermath audit started"
+
+
 class SkillsCommand(SlashCommand):
     name = "skills"
     hint = "list discovered skills by source + what this run routed"
@@ -709,17 +846,19 @@ class SkillsCommand(SlashCommand):
             return "no skills discovered — install SKILL.md under ~/.agents/skills, ~/.sick/skills, or .sick/skills"
         ws = Path(getattr(app.agent, "workspace", ".")).resolve()
         home = Path.home()
-        groups: dict[str, list] = {"workspace": [], "user": [], "host": []}
+        groups: dict[str, list] = {"bundled": [], "workspace": [], "user": [], "host": []}
         for s in discovered:
             p = Path(s.path)
-            if ws in p.parents and ".sick" in p.parts:
+            if "bundled" in p.parts:
+                groups["bundled"].append(s)
+            elif ws in p.parents and ".sick" in p.parts:
                 groups["workspace"].append(s)
             elif home / ".sick" in p.parents:
                 groups["user"].append(s)
             else:
                 groups["host"].append(s)
         lines = ["## skills"]
-        for label in ("workspace", "user", "host"):
+        for label in ("bundled", "workspace", "user", "host"):
             items = groups[label]
             if items:
                 lines.append(f"### {label} ({len(items)})")
@@ -850,7 +989,7 @@ class UpdateCommand(SlashCommand):
 
             v = _v("sick-agent")
         except Exception:
-            v = "0.3.0"
+            v = "0.4.0"
         return (
             f"sick {v}\n"
             "update (checkout): `git pull && ./install.sh`\n"
@@ -871,7 +1010,7 @@ class SlashCommandRegistry:
             CheckpointCommand(), RestoreCommand(), CheckpointsCommand(), VersionCommand(),
             LearnCommand(), UndoCommand(), RedoCommand(), CompactCommand(), ExportCommand(),
             InitCommand(), SessionsCommand(), SkillsCommand(), DetailsCommand(), ThinkingCommand(),
-            EditorCommand(), ConnectCommand(), ThemesCommand(), UpdateCommand(),
+            EditorCommand(), ConnectCommand(), ThemesCommand(), UpdateCommand(), PonytailCommand(), PonytailReviewCommand(), PonytailAuditCommand(), PonytailDebtCommand(), PonytailHelpCommand(), AftermathCommand(), AftermathStatusCommand(), AftermathRevertCommand(), AftermathLogCommand(), AftermathAuditCommand(),
         ):
             self.commands[cmd.name] = cmd
             self.canonical.append(cmd)
