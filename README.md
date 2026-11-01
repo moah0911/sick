@@ -1,12 +1,52 @@
 # Sick
 
-**Self-improving coding agent** built on the [NVIDIA OO Agents Framework](https://github.com/NVIDIA-NeMo/labs-OO-Agents).
+[![PyPI](https://img.shields.io/pypi/v/sick-agent)](https://pypi.org/project/sick-agent/)
+[![Python](https://img.shields.io/pypi/pyversions/sick-agent)](https://pypi.org/project/sick-agent/)
+[![License](https://img.shields.io/github/license/moah0911/sick)](LICENSE)
+[![Tests](https://img.shields.io/badge/tests-162%20passing-brightgreen)](tests/)
 
-Sick is an object-oriented coding agent that reads, writes, and edits code — and modifies its own source to improve over time.
+**The coding agent that can't claim "done" without proof.**
+
+Sick is a self-improving, object-oriented coding agent built on the
+[NVIDIA OO Agents Framework](https://github.com/NVIDIA-NeMo/labs-OO-Agents).
+It reads, writes, and edits code in your workspace — and unlike other
+agents, its host process *enforces* the engineering process: a task is
+only "delivered" when verification evidence exists after the last edit.
+Everything it does leaves artifacts you can audit.
+
+## Highlights
+
+- **Evidence-gated delivery** — runtime SDLC lifecycle (requirements →
+  design → implement → verify → deliver). Unverified work ends
+  `BLOCKED`, never "success". Every run persists proof in
+  `.sick/runs/<id>/` (`verification.json`, plan, summary).
+- **It actually learns** — structured lessons
+  (`trigger → root cause → fix`) that are promoted only when a fix
+  verifies, and marked *ineffective* when a failure recurs.
+- **It grows its own tools** — when a capability is missing, the agent
+  writes a new tool, smoke-tests it in a subprocess, registers it live,
+  and keeps it for future sessions (`.sick/tools/`, with provenance).
+- **Skills from success** — `/distill` turns a delivered task into a
+  reusable `SKILL.md` playbook, activated only after your approval.
+- **Repo guardian** — `sick watch` re-verifies your repo on change and
+  makes one bounded, checkpointed fix attempt when tests go red.
+- **Real default plugins** — the actual Ponytail and Aftermath skills
+  (vendored, pinned), including destructive-command blocking and
+  post-failure edit freezes enforced in code.
+- **Live, honest TUI** — streaming tool feed, visible model thinking,
+  an SDLC phase tracker, and fail-fast provider errors with the real
+  message — never a silent spinner.
+- **Runs on your model** — Gemma 4, Muse Spark, Groq, Anthropic,
+  OpenAI, and more, switchable live mid-session with `/connect`.
 
 ## Quick Start
 
 ```bash
+# From PyPI (recommended)
+uv tool install sick-agent
+sick
+
+# Or from source
 git clone https://github.com/moah0911/sick.git sick && cd sick
 ./install.sh            # uv, deps, .env, `sick` command, preflight
 # or: ./install.sh --global   (uv tool install — `sick` on PATH from anywhere)
@@ -38,7 +78,13 @@ All configuration lives in `.env` (see [`.env.example`](.env.example)):
 | `NVIDIA_API_KEY` / `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GROQ_API_KEY` | Provider selection (set one) |
 | `SICK_MODEL` | Model override |
 | `SICK_BASE_URL` | Custom OpenAI-compatible endpoint (Groq's is built in) |
-| `SICK_PROVIDER` | Force `nvidia`/`anthropic`/`openai`/`groq` when multiple keys set |
+| `SICK_PROVIDER` | Force `nvidia`/`anthropic`/`openai`/`groq`/`meta` when multiple keys set |
+| `MODEL_API_KEY` | Meta Model API key (Muse Spark) |
+| `SICK_MEMORY_DIR` | Experience memory location (default `~/.sick`) |
+| `SICK_REMOTION_DIR` | Remotion skill location (default `~/.agents/skills`) |
+| `SICK_SANDBOX` | `1` to force bash sandboxing |
+| `SICK_MAX_TOKENS` | Cap model output tokens per call (default 4096 on slow endpoints) |
+| `SICK_TOOL_GENESIS` | `off` disables agent-created tools |
 
 Change provider or key any time with `sick --setup` (hidden key entry, works
 even when already configured) or switch live between saved providers in the
@@ -52,9 +98,22 @@ endpoints/models from the previous provider are cleared automatically.
 > that budget. Groq's Dev Tier (pay-as-you-go, 250k TPM) works; Sick now
 > fails fast with that exact message instead of retrying silently for
 > minutes. Model reasoning is shown live in the TUI (`/thinking` toggles it).
-| `SICK_MEMORY_DIR` | Experience memory location (default `~/.sick`) |
-| `SICK_REMOTION_DIR` | Remotion skill location (default `~/.agents/skills`) |
-| `SICK_SANDBOX` | `1` to force bash sandboxing |
+
+## Runs on Gemma 4
+
+Sick runs on **Gemma 4** (`google/gemma-4-31b-it`) as a full coding
+agent — same tool use, evidence-gated delivery, self-learning, and live
+TUI, unchanged:
+
+```bash
+SICK_PROVIDER=nvidia SICK_MODEL=google/gemma-4-31b-it sick
+# or make it permanent for a workspace with one line in .env:
+#   SICK_MODEL=google/gemma-4-31b-it   (after /connect nvidia)
+```
+
+Swap models any time mid-session with `/connect`, or per launch with
+`sick --model <model-id>`. The header and `/models` always show the
+model the running client is actually using.
 
 Per-project settings go in `.sick/config.toml`:
 
@@ -84,8 +143,8 @@ sick
 - `/learn [focus]` — self-improvement: mines audit + memory for failures, records a lesson, then edits sick's own source (checkpoint first, tests after, `/restore` to roll back); also `sick --learn [focus]`
 - `/undo` / `/redo` — back to the previous checkpoint (current state snapshotted first), `/compact` (`/summarize`), `/export [path]`, `/init`, `/sessions` (`/resume`, `/continue`), `/details`, `/thinking`, `/editor` ($EDITOR), `/connect`, `/themes [name]`, `/update`
 - `/checkpoint [msg]` / `/restore [n]` / `/checkpoints` — git `sick-checkpoints` branch
-- `/version` — `0.1.0` + model; `/visual <topic>` remotion; `Footer` + `Header` clock + `LoadingIndicator` + `max_lines=2000`
-- Layout: header (clock) · chat + status sidebar (workspace/branch, model, turns/tools, view state, skills, keys; auto-hides under 90 cols) · status bar · input (border shows `message`, subtitle shows hints) · footer with everyday keys. Custom `sick` theme (dark slate, green/amber); `ctrl+t` cycles themes, `/themes <name>` switches
+- `/version` — version + live model; `/visual <topic>` remotion; `/tools` builtins + grown tools; `/sidebar` toggles the right panel; `/status` full session detail
+- Layout: header (clock) · full-width chat with live tool feed + thinking · responsive right panel (SDLC phase tracker, plugins, skills; auto-hides under 120 cols, `/sidebar` toggles) · status bar (state, sdlc/gate, plugins) · input (border shows `message`, subtitle shows hints) · footer with everyday keys. Precision-dark `sick` theme (+ `sick-light`); `ctrl+t` cycles Sick's curated themes only
 - Keymap (`ctrl+x` leader): `h` help, `n` new, `c` compact, `l` learn, `s` sessions, `u` undo, `r` redo, `e` editor, `x` export, `m` models, `t` themes, `d` details, `q` quit; direct: `ctrl+c` interrupt, `ctrl+l` clear, `f1` help, `esc` focus input, `pageup/pagedown/home/end` scroll, `up/down` history — all listed in `/help`
 - Suggester: `/` commands + `@` files (workspace-aware, `EXCLUDED_DIRS` filtered)
 
@@ -123,8 +182,8 @@ result = agent.parse_pdf("docs/report.pdf")
 
 | Skill | Description | Status |
 |-------|-------------|--------|
-| **ponytail** (always, real plugin) | The actual vendored Ponytail skill (github.com/DietrichGebert/ponytail, pinned — see `src/sick/bundled/BUNDLED.md`): lazy-senior-dev ladder, levels via `/ponytail [lite|full|ultra|off]`, plus `/ponytail-review`, `/ponytail-audit`, `/ponytail-debt` | Always active |
-| **aftermath** (always, real plugin) | The actual vendored Aftermath recovery skill (github.com/moah0911/aftermath, pinned): failure ladder in context + enforcement in code — destructive commands blocked, forward edits frozen after unresolved failures at `full` (default), `/aftermath [lite|full|ultra|off]`, `/aftermath-status`, `/aftermath-revert`, `/aftermath-log` | Always active |
+| **ponytail** (always, real plugin) | The actual vendored Ponytail skill (github.com/DietrichGebert/ponytail, pinned — see `src/sick/bundled/BUNDLED.md`): lazy-senior-dev ladder, levels via `/ponytail [lite/full/ultra/off]`, plus `/ponytail-review`, `/ponytail-audit`, `/ponytail-debt` | Always active |
+| **aftermath** (always, real plugin) | The actual vendored Aftermath recovery skill (github.com/moah0911/aftermath, pinned): failure ladder in context + enforcement in code — destructive commands blocked, forward edits frozen after unresolved failures at `full` (default), `/aftermath [lite/full/ultra/off]`, `/aftermath-status`, `/aftermath-revert`, `/aftermath-log` | Always active |
 | **PDF handling** | Parse PDFs via Docling — clean Markdown, not raw binary | Always active |
 | **Remotion** | Create explanatory videos: Remotion scaffold, markup, render | Always active |
 | **SDLC & OO** | Runtime-enforced lifecycle (`sick.lifecycle`): phases observed from tool results, delivery blocked without post-edit verification evidence; OO via `ToolResult`/`ToolRegistry` deep modules | Always active |
@@ -189,6 +248,12 @@ via `bash cat`.
 | `self_read` / `self_write` | Read/write own source code |
 | `fetch_url` | Fetch a web page (http/https, bounded to 100KB) |
 | `checkpoint` / `restore` / `checkpoints` | Snapshot the workspace and undo changes (separate `sick-checkpoints` branch) |
+| `load_skill` | Load an installed skill's full instructions on demand |
+| `create_tool` / `use_tool` | Grow a new persistent tool (validated in a subprocess, registered live) and call grown tools |
+
+Plus the guardian daemon: `sick watch` (verify on change, bounded
+checkpointed fix attempts, never commits — see `sick watch --help`
+behaviour in `src/sick/guardian.py`).
 
 All file-backed tools operate inside the project where Sick was started. Paths
 that escape it (including via symlinks) are rejected. `read_file`, `grep`, and
@@ -216,48 +281,70 @@ each requested inclusive range to Markdown through Docling.
 | Uncontrolled shell / runaway commands | Validated timeouts, bounded output, workspace `cwd`; opt-in `--sandbox` via bwrap (read-only host, no network) |
 | Agents can't read docs/websites mid-task | `fetch_url` tool (bounded, http/https only) |
 | No memory across sessions | `ExperienceMemory` recall in every prompt |
-| Setup friction / provider confusion | `./install.sh` + `.env.example` + auto-detection across 3 providers |
+| Setup friction / provider confusion | `./install.sh` + `.env.example` + auto-detection across 5 providers + live `/connect` switching |
 | No verification loop | "Run tests after every change" baked in; `sick --preflight` health checks |
 | Agents over-engineer or drift off-task | Always-on ponytail + runtime SDLC gate (`sick.lifecycle`) that blocks unverified delivery |
 | Can't use PDFs/docs in context | Docling `parse_pdf` + auto-parsed `@file` attachments |
 | Outputs are code-only | `/visual` — Remotion explainer videos as a deliverable |
 | Not self-improving | `self_read`/`self_write` rooted at `src/sick/`, `--modify` flow with test verification |
 
-## Memory
+## Memory & learning
 
-Experiences are stored in `~/.sick/memory.jsonl`. The agent recalls past patterns on similar tasks. Code-research indexes are cached per project in `.sick/indexes/` (ignored by Git).
+Experiences are stored in `~/.sick/memory.jsonl`; structured lessons
+(`trigger → root cause → fix → verified`) live in `~/.sick/lessons.json`
+and are recalled into future prompts when relevant. Code-research
+indexes are cached per project in `.sick/indexes/` (ignored by Git).
+Run `/learn` after a rough session: Sick mines its audit log for what
+actually failed, records a structured lesson, and — with your review —
+turns verified fixes and successful runs into lasting capability
+(edits, lessons, distilled skills).
 
 ## Project Structure
 
 ```
 src/sick/
-├── agent.py          # SickAgent — composes tools + skills + memory
+├── agent.py          # SickAgent — composes tools + skills + memory + plugins
 ├── lifecycle.py      # Evidence-gated SDLC: phases, risk tiers, delivery gates, run artifacts
 ├── design_check.py   # AST OO/design checks over changed files
+├── guard.py          # Aftermath guard: destructive blocks + edit freeze at the registry seam
+├── guardian.py       # Repo guardian daemon core (sick watch)
+├── learn.py          # Structured lessons: candidate → verified → ineffective on recurrence
+├── plugins.py        # Bundled default plugins loader (ponytail + aftermath, vendored pinned)
+├── bundled/          # Vendored plugin content + BUNDLED.md manifest (source + commit pins)
 ├── audit.py          # JSONL audit log of every tool call
-├── cli.py            # CLI entry point (run, modify, preflight, sandbox)
+├── cli.py            # CLI entry point (run, modify, learn, watch, preflight, sandbox)
 ├── config.py         # .sick/config.toml loader
 ├── preflight.py      # health checks (import, git, pytest)
-├── skills.py         # SKILL.md discovery + on-demand loading
-├── providers.py      # LLM providers (NVIDIA, OpenAI, Anthropic)
+├── skills.py         # SKILL.md discovery, relevance ranking, on-demand loading
+├── providers.py      # LLM providers (NVIDIA, Anthropic, OpenAI, Groq, Meta)
 ├── memory.py         # Experience memory (JSONL log)
 ├── tools/
 │   ├── base.py       # Tool ABC + ToolResult + workspace boundary
-│   ├── registry.py   # ToolRegistry — dispatch/audit/counts/lifecycle seam
+│   ├── registry.py   # ToolRegistry — dispatch/audit/counts/lifecycle/activity seam
 │   ├── files.py      # ReadFile, WriteFile, EditFile
 │   ├── exec.py       # Bash (optionally bwrap-sandboxed)
 │   ├── search.py     # Grep, Glob
 │   ├── pdf.py        # ParsePdf (Docling)
 │   ├── git.py        # Checkpoint, Restore, ListCheckpoints
 │   ├── web.py        # FetchUrl
-│   └── self.py       # SelfRead, SelfWrite
+│   ├── skill.py      # LoadSkill (audited skill loading)
+│   ├── genesis.py    # create_tool: agent-grown persistent tools
+│   └── self.py       # SelfRead, SelfWrite ($SICK_ROOT-aware)
 └── tui/
-    ├── app.py        # SickApp — Textual application
-    ├── chat.py       # ChatView — chat history
+    ├── app.py        # SickApp — Textual application (live feed, SDLC tracker)
+    ├── chat.py       # ChatView — structured message renderables
     ├── inputbar.py   # SickInput + @file suggester
-    ├── commands.py   # Slash commands
+    ├── commands.py   # Slash commands (incl. bundled /commit)
     └── host.py       # TurnHost — agent turn loop
 ```
+
+## Built with
+
+Python 3.12 · [NVIDIA OO Agents (NOOA)](https://github.com/NVIDIA-NeMo/labs-OO-Agents)
+· LiteLLM · Textual · Pydantic · Docling (PDF) · Remotion (explainer
+videos) · pytest · bubblewrap (optional sandbox). Models: bring your
+own key — NVIDIA, Anthropic, OpenAI, Groq, Meta (Muse Spark), and
+Gemma 4 are all supported through one provider layer.
 
 ## Demos (real, no mocks)
 
