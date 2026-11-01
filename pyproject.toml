@@ -1,0 +1,102 @@
+[project]
+name = "sick-agent"
+version = "0.2.4"
+description = "Self-improving coding agent built on the NOOA framework"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "Apache-2.0" }
+authors = [
+    { name = "Sick contributors" },
+]
+maintainers = [
+    { name = "Sick contributors" },
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Code Generators",
+]
+keywords = ["agent", "coding-assistant", "llm", "nooa", "textual"]
+
+dependencies = [
+    "nooa",
+    "mcp>=1.0",
+    "python-dotenv",
+    "textual>=8.2.8",
+    "portalocker>=4.1",
+    "pydantic>=2.9",
+    "structlog>=24.1",
+    "numpy>=1.26",
+    "cookiecutter>=2.6",
+    "pygls>=1.3",
+    "lsprotocol>=2023.0.1",
+]
+
+[project.urls]
+Homepage = "https://github.com/moah0911/sick"
+Repository = "https://github.com/moah0911/sick"
+Issues = "https://github.com/moah0911/sick/issues"
+Documentation = "https://github.com/moah0911/sick#readme"
+
+[project.optional-dependencies]
+pdf = ["docling>=1.0"]
+
+[project.scripts]
+sick = "sick.cli:main"
+sick-lsp = "sick.lsp.server:main"
+
+[tool.uv.sources]
+nooa = { git = "https://github.com/NVIDIA-NeMo/labs-OO-Agents.git", rev = "main" }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "pytest-cov>=6.0",
+    "ruff>=0.12",
+    "mypy>=1.13",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --strict-markers"
+markers = [
+    "llm: requires live LLM key",
+]
+
+[tool.coverage.run]
+source = ["sick"]
+branch = true
+
+[tool.coverage.report]
+skip_covered = false
+show_missing = true
+fail_under = 50
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "C4", "UP"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.12"
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/sick"]
+
+# ponytail: wheel-only — a global force-include rewrites the path inside the
+# sdist too, which then breaks the wheel-from-sdist build (publish CI)
+[tool.hatch.build.targets.wheel.force-include]
+"templates" = "sick/templates"

@@ -1,0 +1,4 @@
+{
+  "project_name": "my-video",
+  "project_slug": "{{cookiecutter.project_name.lower().replace(' ', '-').replace('_', '-')}}"
+}
