@@ -13,6 +13,7 @@ class SickConfig(BaseModel):
     command: dict = Field(default_factory=dict)
     ponytail: str = "full"
     aftermath: str = "full"
+    tool_genesis: bool = True
 
     @field_validator("excluded", mode="before")
     @classmethod

@@ -159,6 +159,13 @@ class SdlcSkill(Skill):
         agent.context["sdlc"] = SDLC_PROMPT
 
 
+_BUILTIN_TOOL_NAMES = {
+    "read_file", "write_file", "edit_file", "bash", "grep", "glob", "parse_pdf",
+    "code_research", "self_read", "self_write", "fetch_url", "checkpoint",
+    "restore", "checkpoints", "load_skill", "create_tool",
+}
+
+
 class SickAgent(InteractiveAgent):
     """You are Sick, a coding agent who modifies itself to get better over time.
 
@@ -235,6 +242,21 @@ class SickAgent(InteractiveAgent):
 
         self.guard = AftermathGuard(self.workspace, mode=self.aftermath_mode)
         self.registry.guard = self.guard
+
+        # Tool genesis: persisted workspace tools reload; create_tool is
+        # registered so the agent can grow new ones live (see tools/genesis).
+        self.grown_tools: list[str] = []
+        from sick.tools.genesis import CreateTool, genesis_enabled, load_workspace_tools
+
+        if genesis_enabled(cfg):
+            creator = CreateTool(self.workspace, registry=self.registry)
+            self.registry.register(creator)
+            self.grown_tools, _skipped = load_workspace_tools(self.registry, self.workspace)
+            if self.grown_tools:
+                self.context["grown_tools"] = (
+                    "## grown tools (created for this workspace)\n"
+                    + "\n".join(f"- {n}: use via use_tool('{n}', ...)" for n in self.grown_tools)
+                )
 
         self._register_skill(PonytailSkill())
         self._register_skill(AftermathSkill())
@@ -484,6 +506,30 @@ class SickAgent(InteractiveAgent):
         """Load the full instructions of an installed skill by name (see the skills index)."""
         return str(self._call("load_skill", name=name))
 
+    def create_tool(self, name: str, code: str, example_kwargs: dict | None = None, expected_contains: str = "") -> str:
+        """Create a NEW tool when no existing tool fits: supply a Tool subclass
+        (from sick.tools.base import Tool, ToolResult), a smoke-test example,
+        and expected output text. It is validated, registered live, and
+        persisted in .sick/tools/ for future sessions. Then call it via use_tool.
+        """
+        out = str(self._call("create_tool", name=name, code=code, example_kwargs=example_kwargs or {}, expected_contains=expected_contains))
+        if out.startswith("tool '"):
+            try:
+                self.grown_tools = sorted(n for n in self.registry.tools if n not in _BUILTIN_TOOL_NAMES)
+                self.context["grown_tools"] = (
+                    "## grown tools (created for this workspace)\n"
+                    + "\n".join(f"- {n}: use via use_tool('{n}', ...)" for n in self.grown_tools)
+                )
+            except Exception:
+                pass
+        return out
+
+    def use_tool(self, name: str, **kwargs: Any) -> str:
+        """Call a grown tool by name (see the grown_tools context block)."""
+        if name not in self.registry.tools:
+            return f"Error: unknown tool: {name}"
+        return str(self._call(name, **kwargs))
+
     def checkpoint(self, message: str = "checkpoint") -> str:
         return str(self._call("checkpoint", message=message))
 
@@ -523,6 +569,61 @@ class SickAgent(InteractiveAgent):
     def _record_experience(self, task: str, outcome: str, pattern: str) -> None:
         tools = sorted(self._tool_counts.keys())
         self.memory.record(Experience(task=task, outcome=outcome, pattern=pattern, tools=tools))
+
+    def distill_skill(self, name: str = "") -> str:
+        """Distill the current/last delivered run into a draft SKILL.md.
+
+        Deterministic (no LLM prose): the draft is built from run
+        artifacts — task, plan steps, tool sequence, changed files, and
+        the verification that passed. Drafts live in .sick/skills-draft
+        (invisible to discovery) until approved via approve_skill().
+        """
+        import re as _re
+
+        run = self.current_run
+        if run is None or not run.mutations:
+            return "nothing to distill yet — complete a task with file changes first"
+        slug = name.strip().lower() or _re.sub(r"[^a-z0-9]+", "-", run.task.lower()).strip("-")[:40] or "distilled-skill"
+        tools_seq: list[str] = []
+        for entry in self.audit.entries(100):
+            tool = str(entry.get("tool", ""))
+            if tool and (not tools_seq or tools_seq[-1] != tool):
+                tools_seq.append(tool)
+        steps = "\n".join(f"- [{'x' if s['done'] else ' '}] {s['name']}" for s in run.plan_steps)
+        verify = "; ".join(e.detail for e in run.evidences) or "(no verification recorded)"
+        files = ", ".join(run.changed_files) or "(none)"
+        body = (
+            f"---\nname: {slug}\ndescription: Distilled from a delivered run: {run.task[:100]}\nstatus: draft\n---\n"
+            f"# {slug}\n\n## When to use\nA task like: {run.task}\n\n"
+            f"## Steps (from the successful run)\n{steps}\n\n"
+            f"Tool sequence that worked: {' -> '.join(tools_seq[-12:])}\n\n"
+            f"## Files touched\n{files}\n\n## Verification that passed\n{verify}\n"
+        )
+        draft = self.workspace / ".sick" / "skills-draft" / slug / "SKILL.md"
+        draft.parent.mkdir(parents=True, exist_ok=True)
+        draft.write_text(body)
+        return f"draft skill written: {draft} — review it, then approve with /distill approve {slug}"
+
+    def approve_skill(self, name: str) -> str:
+        """Activate a distilled draft skill (moves it into .sick/skills)."""
+        src = self.workspace / ".sick" / "skills-draft" / name
+        if not (src / "SKILL.md").is_file():
+            return f"no draft skill named '{name}'"
+        dest = self.workspace / ".sick" / "skills" / name
+        suffix = 2
+        while dest.exists():
+            dest = self.workspace / ".sick" / "skills" / f"{name}-{suffix}"
+            suffix += 1
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        text = (src / "SKILL.md").read_text().replace("status: draft\n", "")
+        if dest.name != name:
+            text = text.replace(f"name: {name}", f"name: {dest.name}", 1)
+        dest.mkdir(parents=True, exist_ok=True)
+        (dest / "SKILL.md").write_text(text)
+        (src / "SKILL.md").unlink()
+        src.rmdir()
+        self._register_discovered_skills()
+        return f"skill '{dest.name}' approved and active — see /skills"
 
     def learn_brief(self, focus: str = "") -> str:
         """Mine audit + memory for lessons, record one, return the brief.

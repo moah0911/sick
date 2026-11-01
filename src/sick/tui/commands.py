@@ -24,10 +24,10 @@ class SlashCommand:
 
 _HELP_GROUPS: list[tuple[str, list[str]]] = [
     ("session", ["clear", "sessions", "compact", "export", "undo", "redo"]),
-    ("work", ["plan", "approve", "reject", "run", "visual", "learn"]),
+    ("work", ["plan", "approve", "reject", "run", "visual", "learn", "distill"]),
     ("plugins", ["ponytail", "ponytail-review", "ponytail-audit", "ponytail-debt", "ponytail-help", "aftermath", "aftermath-status", "aftermath-revert", "aftermath-log", "aftermath-audit"]),
     ("git & history", ["checkpoint", "restore", "checkpoints", "audit", "stats"]),
-    ("view & setup", ["status", "sidebar", "models", "skills", "details", "thinking", "themes", "connect", "editor", "init", "update", "version", "help", "exit"]),
+    ("view & setup", ["status", "sidebar", "tools", "models", "skills", "details", "thinking", "themes", "connect", "editor", "init", "update", "version", "help", "exit"]),
 ]
 
 _KEYMAP = """## keys (ctrl+x leader)
@@ -558,7 +558,7 @@ class VersionCommand(SlashCommand):
 
             v = _v("sick-agent")
         except Exception:
-            v = "0.5.2"
+            v = "0.8.0"
         return f"sick {v}"
 
 
@@ -837,6 +837,49 @@ class AftermathAuditCommand(SlashCommand):
         return "aftermath audit started"
 
 
+class DistillCommand(SlashCommand):
+    name = "distill"
+    hint = "distill last delivered run into a draft skill (/distill [approve <name>])"
+
+    async def run(self, app: SickApp, args: str) -> str | None:
+        parts = args.strip().split(maxsplit=1)
+        if parts and parts[0] == "approve":
+            if len(parts) < 2:
+                return "usage: /distill approve <name>"
+            return str(app.agent.approve_skill(parts[1].strip()))
+        if parts and parts[0] == "list":
+            from pathlib import Path
+
+            drafts = sorted(p.name for p in (Path(app.agent.workspace) / ".sick" / "skills-draft").glob("*/SKILL.md")) if (Path(app.agent.workspace) / ".sick" / "skills-draft").is_dir() else []
+            return "draft skills: " + (", ".join(drafts) if drafts else "(none — /distill after a delivered task)")
+        return str(app.agent.distill_skill(args.strip()))
+
+
+class ToolsCommand(SlashCommand):
+    name = "tools"
+    hint = "list tools: builtins + grown (agent-created, persisted)"
+
+    async def run(self, app: SickApp, args: str) -> str | None:
+        import json
+        from pathlib import Path
+
+        registry = app.agent.registry
+        grown = set(getattr(app.agent, "grown_tools", []) or [])
+        manifest = {}
+        try:
+            mp = Path(app.agent.workspace) / ".sick" / "tools" / "MANIFEST.json"
+            manifest = json.loads(mp.read_text()) if mp.is_file() else {}
+        except Exception:
+            manifest = {}
+        lines = ["## tools"]
+        for name in sorted(registry.tools):
+            kind = "grown" if name in grown else "builtin"
+            origin = f" (created {manifest.get(name, {}).get('created_at', '?')})" if name in manifest else ""
+            lines.append(f"- `{name}` [{kind}]{origin} — {registry.tools[name].description[:80]}")
+        lines.append("grow a new one: ask the agent to `create_tool(...)` when a capability is missing")
+        return "\n".join(lines)
+
+
 class SidebarCommand(SlashCommand):
     name = "sidebar"
     hint = "toggle the right status panel"
@@ -1013,7 +1056,7 @@ class UpdateCommand(SlashCommand):
 
             v = _v("sick-agent")
         except Exception:
-            v = "0.5.2"
+            v = "0.8.0"
         return (
             f"sick {v}\n"
             "update (checkout): `git pull && ./install.sh`\n"
@@ -1033,7 +1076,7 @@ class SlashCommandRegistry:
             AuditCommand(), StatsCommand(), PlanCommand(), ApproveCommand(), RejectCommand(), RunCommand(),
             CheckpointCommand(), RestoreCommand(), CheckpointsCommand(), VersionCommand(),
             LearnCommand(), UndoCommand(), RedoCommand(), CompactCommand(), ExportCommand(),
-            InitCommand(), SessionsCommand(), SidebarCommand(), StatusCommand(), SkillsCommand(), DetailsCommand(), ThinkingCommand(),
+            InitCommand(), SessionsCommand(), SidebarCommand(), StatusCommand(), DistillCommand(), ToolsCommand(), SkillsCommand(), DetailsCommand(), ThinkingCommand(),
             EditorCommand(), ConnectCommand(), ThemesCommand(), UpdateCommand(), PonytailCommand(), PonytailReviewCommand(), PonytailAuditCommand(), PonytailDebtCommand(), PonytailHelpCommand(), AftermathCommand(), AftermathStatusCommand(), AftermathRevertCommand(), AftermathLogCommand(), AftermathAuditCommand(),
         ):
             self.commands[cmd.name] = cmd
