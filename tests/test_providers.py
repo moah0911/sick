@@ -32,7 +32,7 @@ def test_detect_model_prefix_infers_provider(monkeypatch):
 def test_detect_raises_when_no_keys(monkeypatch):
     import pytest
 
-    for k in ("NVIDIA_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "SICK_MODEL", "SICK_PROVIDER"):
+    for k in ("NVIDIA_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GROQ_API_KEY", "SICK_MODEL", "SICK_PROVIDER", "SICK_BASE_URL"):
         monkeypatch.delenv(k, raising=False)
     with pytest.raises(ValueError, match="No LLM provider"):
         detect()
@@ -149,6 +149,9 @@ def test_groq_create_llm_uses_groq_key_and_base(monkeypatch):
     assert captured["model"] == "groq/openai/gpt-oss-120b"
     # NOOA injects prompt_cache_key on every call; Groq must strip it
     assert captured["additional_drop_params"] == ["prompt_cache_key"]
+    # fail fast: an oversized request must not retry for minutes in silence
+    retry = captured["retry_config"]
+    assert retry.max_retries == 1 and retry.rate_limit_extra_retries == 0
 
 
 def test_groq_client_config_strips_prompt_cache_key(monkeypatch):

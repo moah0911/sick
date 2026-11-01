@@ -1,4 +1,9 @@
 # Changelog
+## 0.2.5
+- Fix blank "thinking…" screen on Groq: root cause was Groq free-tier 8k TPM vs Sick's ~24k-token agent request, retried silently 7× with minute-long backoffs. Sick context diet cut the request to ~14.6k (skills index capped at 6k chars in `skills.py`, Remotion context is now an on-demand pointer in `agent.py`), Groq clients fail fast (max 2 attempts, `providers.py`), and CLI turns surface the real provider error + an actionable hint instead of a traceback or silent hang `cli.py`
+- Show model thinking live: TUI subscribes to NOOA `LLMComplete` events and renders `reasoning_content` dimmed via `ChatView.add_thinking`; `/thinking` now actually controls it and defaults to visible (previously a placebo toggle) `tui/app.py`, `tui/chat.py`
+- Note: Groq free tier (8k TPM) still cannot fit any ~15k-token agent request — Dev Tier (250k TPM) or another provider is required; README documents this
+
 ## 0.2.4
 - Fix Groq `model_not_found` turns: Groq shut down `llama-3.3-70b-versatile` for free/developer tiers on 2026-08-16. Default Groq model is now `openai/gpt-oss-120b` (Groq's recommended replacement, 131k context, tool calling), and saved configs naming retired Groq models (`llama-3.3-70b-versatile`, `llama-3.1-70b-versatile`, `llama-3.1-8b-instant`, tool-use preview) migrate to supported replacements automatically in `Groq.__init__` `providers.py`
 

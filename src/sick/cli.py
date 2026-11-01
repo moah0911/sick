@@ -20,7 +20,7 @@ try:
     except Exception:
         __version__ = _pkg_version("sick")
 except Exception:
-    __version__ = "0.2.4"
+    __version__ = "0.2.5"
 
 
 def main() -> None:
@@ -137,20 +137,36 @@ def main() -> None:
         agent.registry.set_sandboxed(True)
         print("sandbox: bash commands will run inside bwrap (beta)", file=sys.stderr)
 
+    def _run_generation(coro) -> str:
+        """Run one generation; surface LLM errors cleanly, never a traceback."""
+        try:
+            return asyncio.run(coro)
+        except Exception as e:
+            msg = str(e).replace("\n", " ")[:600]
+            print(f"sick: turn failed: {msg}", file=sys.stderr)
+            if "Request too large" in msg or "tokens per minute" in msg:
+                print(
+                    "hint: this provider's per-minute token limit is smaller than one Sick "
+                    "agent request (~15k tokens incl. tool docs). On Groq's free tier (8k TPM) "
+                    "no coding agent fits — upgrade to Groq Dev Tier or use another provider/model.",
+                    file=sys.stderr,
+                )
+            sys.exit(1)
+
     if args.learn is not None:
         from sick.learn import build_learn_prompt
 
         brief = agent.learn_brief(args.learn)
         print(brief)
         agent.begin_run(build_learn_prompt(brief, args.learn), approved=True)
-        result = asyncio.run(agent.run(build_learn_prompt(brief, args.learn)))
+        result = _run_generation(agent.run(build_learn_prompt(brief, args.learn)))
         print(result)
         verdict = agent.finish_run("learn")
         if verdict is not None and not verdict.allowed:
             print(f"SDLC gate: BLOCKED — {'; '.join(verdict.reasons)}", file=sys.stderr)
     elif args.modify:
         agent.begin_run(args.modify, approved=True)
-        result = asyncio.run(agent.modify_self(args.modify))
+        result = _run_generation(agent.modify_self(args.modify))
         print(result)
         verdict = agent.finish_run("modify_self")
         if verdict is not None and not verdict.allowed:
@@ -181,7 +197,7 @@ def main() -> None:
             except Exception:
                 pass
         agent.begin_run(task, approved=True)
-        result = asyncio.run(agent.run(task))
+        result = _run_generation(agent.run(task))
         print(result)
         verdict = agent.finish_run("one-shot task")
         if verdict is not None and not verdict.allowed:

@@ -44,6 +44,14 @@ Change provider or key any time with `sick --setup` (hidden key entry, works
 even when already configured) or switch live between saved providers in the
 TUI with `/connect groq|openai|nvidia|anthropic` — no restart, and stale
 endpoints/models from the previous provider are cleared automatically.
+
+> **Groq free tier warning:** Groq's free (`on_demand`) plan caps chat models
+> at **8,000 tokens/minute**, but one Sick agent request is ~15k tokens
+> (system context + tool documentation + conversation), so every turn is
+> rejected with `Request too large … Limit 8000` — no coding agent fits in
+> that budget. Groq's Dev Tier (pay-as-you-go, 250k TPM) works; Sick now
+> fails fast with that exact message instead of retrying silently for
+> minutes. Model reasoning is shown live in the TUI (`/thinking` toggles it).
 | `SICK_MEMORY_DIR` | Experience memory location (default `~/.sick`) |
 | `SICK_REMOTION_DIR` | Remotion skill location (default `~/.agents/skills`) |
 | `SICK_SANDBOX` | `1` to force bash sandboxing |

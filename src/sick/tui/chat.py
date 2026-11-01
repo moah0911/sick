@@ -28,6 +28,14 @@ class ChatView(RichLog):
         except Exception:
             self.write(Text(text[:8000]))
 
+    def add_thinking(self, text: str) -> None:
+        """Render model reasoning (LLMComplete.reasoning_content), dimmed."""
+        body = text.strip()
+        if not body:
+            return
+        self.write(Text("◌ thinking", style="bold #8a7f5c"))
+        self.write(Text(body[:6000], style="dim italic #9a94a6"))
+
     def add_tool(self, text: str) -> None:
         self.write(Text(f"  │ {text[:4000]}", style="dim italic"))
 

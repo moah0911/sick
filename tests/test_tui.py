@@ -186,6 +186,31 @@ def test_connect_switches_provider_live(tmp_path, monkeypatch):
     asyncio.run(scenario())
 
 
+def test_thinking_renders_llm_reasoning(tmp_path):
+    """LLMComplete.reasoning_content must reach the chat when visible."""
+    from types import SimpleNamespace
+
+    from sick.tui.app import SickApp
+
+    async def scenario():
+        agent = FakeAgent(str(tmp_path))
+        app = SickApp(agent)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            assert app.show_thinking is True
+            app._on_llm_complete(SimpleNamespace(reasoning_content="weighing options"))
+            await pilot.pause()
+            assert any("weighing options" in str(line) for line in app.chat_view.lines)
+            assert ("thinking", "weighing options") in app.transcript
+            # hidden mode renders nothing
+            app.show_thinking = False
+            app._on_llm_complete(SimpleNamespace(reasoning_content="secret thoughts"))
+            await pilot.pause()
+            assert not any("secret thoughts" in str(line) for line in app.chat_view.lines)
+
+    asyncio.run(scenario())
+
+
 def test_stats_command():
     from sick.tui.app import SickApp
 
@@ -277,6 +302,10 @@ def test_details_thinking_connect_themes_update(tmp_path, monkeypatch):
         assert "on" in out and app.show_details is True
         out = await app.commands.dispatch(app, "/details")
         assert "off" in out and app.show_details is False
+        # thinking defaults to visible; /thinking toggles it off and back on
+        assert app.show_thinking is True
+        out = await app.commands.dispatch(app, "/thinking")
+        assert "hidden" in out and app.show_thinking is False
         out = await app.commands.dispatch(app, "/thinking")
         assert "visible" in out and app.show_thinking is True
         out = await app.commands.dispatch(app, "/connect")

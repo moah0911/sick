@@ -287,7 +287,24 @@ class Groq(OpenAICompatible):
         # prompt caching; Groq rejects it as an unsupported property.
         # additional_drop_params is forwarded by get_llm_client to every
         # litellm completion, stripping it before the request is built.
-        return {"additional_drop_params": ["prompt_cache_key"]}
+        #
+        # Fail fast on rate limits: the default retry policy (3 + 3 extra
+        # retries, minute-long backoffs) turns Groq's deterministic
+        # "Request too large for model ... Limit 8000, Requested N" 413
+        # into a several-minute silent hang — retrying an oversized
+        # request can never succeed. Two attempts max, then the real
+        # Groq error surfaces to the user.
+        from nooa.unifiedllm import RetryConfig
+
+        return {
+            "additional_drop_params": ["prompt_cache_key"],
+            "retry_config": RetryConfig(
+                max_retries=1,
+                rate_limit_extra_retries=0,
+                rate_limit_base_delay=2.0,
+                max_delay=15.0,
+            ),
+        }
 
 
 class Anthropic(LLMProvider):

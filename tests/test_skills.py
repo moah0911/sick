@@ -52,6 +52,18 @@ def test_skills_index_and_load_body(tmp_path, monkeypatch):
     assert load_skill_body("nope") is None
 
 
+def test_skills_index_is_capped(tmp_path, monkeypatch):
+    from sick.skills import discover_skills, skills_index_prompt
+
+    for i in range(30):
+        _make_skill(tmp_path, f"skill-{i:02d}", "x" * 120)
+    monkeypatch.setenv("SICK_SKILLS_DIR", str(tmp_path))
+    idx = skills_index_prompt(discover_skills(tmp_path), max_chars=1500)
+    assert len(idx) <= 2200  # cap + header + omission line
+    assert "more installed skills" in idx
+    assert "load_skill(name)" in idx
+
+
 def test_agent_indexes_discovered_skills(tmp_path, monkeypatch):
     from sick.agent import SickAgent
 
