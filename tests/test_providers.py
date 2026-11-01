@@ -32,7 +32,7 @@ def test_detect_model_prefix_infers_provider(monkeypatch):
 def test_detect_raises_when_no_keys(monkeypatch):
     import pytest
 
-    for k in ("NVIDIA_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GROQ_API_KEY", "SICK_MODEL", "SICK_PROVIDER", "SICK_BASE_URL"):
+    for k in ("NVIDIA_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GROQ_API_KEY", "MODEL_API_KEY", "META_API_KEY", "SICK_MODEL", "SICK_PROVIDER", "SICK_BASE_URL"):
         monkeypatch.delenv(k, raising=False)
     with pytest.raises(ValueError, match="No LLM provider"):
         detect()
@@ -100,6 +100,49 @@ def test_prompt_for_api_key_skips_cleanly(tmp_path):
         raise EOFError
 
     assert prompt_for_api_key(env_file, input_fn=_eof, secret_fn=lambda _p: "k") is False
+
+
+def test_nvidia_default_is_verified_catalog_model(monkeypatch):
+    from sick.providers import NVIDIA, NVIDIA_MODEL
+
+    monkeypatch.setenv("NVIDIA_API_KEY", "nv-test")
+    monkeypatch.delenv("SICK_PROVIDER", raising=False)
+    monkeypatch.delenv("SICK_MODEL", raising=False)
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    p = detect()
+    assert isinstance(p, NVIDIA)
+    assert p.model_id == NVIDIA_MODEL == "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"
+
+
+def test_nvidia_legacy_models_migrate_and_prefix_not_doubled(monkeypatch):
+    import sick.providers as providers
+
+    captured = {}
+    monkeypatch.setattr(providers, "get_llm_client", lambda model, **kw: captured.update(model=model, **kw) or "llm")
+    monkeypatch.setenv("NVIDIA_API_KEY", "nv-test")
+    # the old broken default self-heals
+    assert providers.NVIDIA("nvidia/llama-3.1-8b-instruct").model_id == providers.NVIDIA_MODEL
+    assert providers.NVIDIA("meta/llama-3.3-70b-instruct").model_id == providers.NVIDIA_MODEL
+    # no double nvidia_nim/ prefix at the client
+    providers.NVIDIA("nvidia_nim/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning").create_llm()
+    assert captured["model"] == "nvidia_nim/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"
+    # a real catalog model passes through untouched
+    assert providers.NVIDIA("moonshotai/kimi-k2.6").model_id == "moonshotai/kimi-k2.6"
+
+
+def test_model_display_uses_live_client_not_redetect(tmp_path, monkeypatch):
+    from sick.providers import client_model_name
+
+    class FakeLLM:
+        model = "nvidia_nim/moonshotai/kimi-k2.6"
+
+    class FakeAgent:
+        _llm = FakeLLM()
+
+    # even with env pointing at another provider, display follows the client
+    monkeypatch.setenv("SICK_PROVIDER", "groq")
+    assert client_model_name(FakeAgent()) == "nvidia_nim/moonshotai/kimi-k2.6"
+    assert client_model_name(object()) is None
 
 
 def test_detect_groq_explicit_and_defaults(monkeypatch):
@@ -199,6 +242,35 @@ def test_prompt_wizard_selects_groq(tmp_path):
     assert ok is True
     text = env_file.read_text()
     assert "GROQ_API_KEY=gsk-wiz" in text and "SICK_PROVIDER=groq" in text
+
+
+def test_detect_meta_and_client(monkeypatch):
+    import sick.providers as providers
+    from sick.providers import META_BASE_URL, Meta
+
+    captured = {}
+    monkeypatch.setattr(providers, "get_llm_client", lambda model, **kw: captured.update(model=model, **kw) or "llm")
+    monkeypatch.setenv("MODEL_API_KEY", "LLM_123_secret")
+    monkeypatch.setenv("SICK_PROVIDER", "meta")
+    p = detect()
+    assert isinstance(p, Meta) and p.model_id == "muse-spark-1.3"
+    assert p.create_llm() == "llm"
+    assert captured["model"] == "openai/muse-spark-1.3"
+    assert captured["api_base"] == META_BASE_URL == "https://api.meta.ai/v1"
+    assert captured["api_key"] == "LLM_123_secret"
+    assert "prompt_cache_key" not in captured["additional_drop_params"]  # Meta supports it
+    assert "stop" in captured["additional_drop_params"]  # Meta rejects it
+    assert captured["max_tokens"] >= 256
+
+
+def test_prompt_wizard_selects_meta(tmp_path):
+    from sick.providers import prompt_for_api_key
+
+    env_file = tmp_path / ".env"
+    ok = prompt_for_api_key(env_file, input_fn=lambda _p: "5", secret_fn=lambda _p: "LLM_wiz")
+    assert ok is True
+    text = env_file.read_text()
+    assert "MODEL_API_KEY=LLM_wiz" in text and "SICK_PROVIDER=meta" in text
 
 
 def test_cli_without_key_noninteractive_exits_friendly(tmp_path):

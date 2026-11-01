@@ -307,7 +307,8 @@ class SickAgent(InteractiveAgent):
         if provider not in PROVIDER_KEYS:
             return f"unknown provider `{provider}` — choose: {', '.join(PROVIDER_KEYS)}"
         var = PROVIDER_KEYS[provider]
-        if not os.environ.get(var):
+        has_key = bool(os.environ.get(var)) or (provider == "meta" and bool(os.environ.get("META_API_KEY")))
+        if not has_key:
             return f"{var} is not set — run `sick --setup` in a terminal to add the {provider} key (keys are never entered in chat)"
         set_active_provider(self.workspace / ".env", provider)
         try:

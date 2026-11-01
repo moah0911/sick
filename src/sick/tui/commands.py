@@ -90,16 +90,23 @@ class ModelsCommand(SlashCommand):
     hint = "show the active model/provider"
 
     async def run(self, app: SickApp, args: str) -> str | None:
+        from sick.providers import client_model_name
+
+        live = client_model_name(app.agent)
+        if live:
+            try:
+                from sick.providers import detect
+
+                return f"model: `{live}` (provider: {detect().name}, live client)"
+            except Exception:
+                return f"model: `{live}` (live client)"
         try:
             from sick.providers import detect
 
             prov = detect()
             return f"model: `{prov.model_id}` (provider: {prov.name})"
         except Exception:
-            pass
-        llm = getattr(app.agent, "_llm", None) or getattr(app.agent, "llm", None)
-        name = getattr(llm, "model", None) or getattr(llm, "model_id", None) or type(llm).__name__ if llm else "no llm"
-        return f"model: `{name}`"
+            return "model: `no llm`"
 
 
 class AuditCommand(SlashCommand):
@@ -547,7 +554,7 @@ class VersionCommand(SlashCommand):
 
             v = _v("sick-agent")
         except Exception:
-            v = "0.2.5"
+            v = "0.2.6"
         return f"sick {v}"
 
 
@@ -747,7 +754,7 @@ class EditorCommand(SlashCommand):
 
 class ConnectCommand(SlashCommand):
     name = "connect"
-    hint = "provider status, or switch live: /connect groq|openai|nvidia|anthropic"
+    hint = "provider status, or switch live: /connect groq|meta|openai|nvidia|anthropic"
 
     async def run(self, app: SickApp, args: str) -> str | None:
         import os
@@ -806,7 +813,7 @@ class UpdateCommand(SlashCommand):
 
             v = _v("sick-agent")
         except Exception:
-            v = "0.2.5"
+            v = "0.2.6"
         return (
             f"sick {v}\n"
             "update (checkout): `git pull && ./install.sh`\n"
