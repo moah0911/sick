@@ -555,7 +555,7 @@ class VersionCommand(SlashCommand):
 
             v = _v("sick-agent")
         except Exception:
-            v = "0.5.0"
+            v = "0.5.1"
         return f"sick {v}"
 
 
@@ -978,14 +978,17 @@ class ThemesCommand(SlashCommand):
     hint = "list themes, or switch with /themes <name>"
 
     async def run(self, app: SickApp, args: str) -> str | None:
-        names = sorted(app.available_themes)
+        from sick.tui.app import CURATED_THEMES
+
+        names = [n for n in CURATED_THEMES if n in app.available_themes]
         want = args.strip()
         if want:
+            # explicit stock names remain available deliberately; cycling never lands there
             if want not in app.available_themes:
-                return f"unknown theme `{want}` — available: {', '.join(names)}"
+                return f"unknown theme `{want}` — curated: {', '.join(names)} (any Textual theme name also works)"
             app.theme = want
             return f"theme → {want}"
-        return f"theme: {app.theme}\navailable: {', '.join(names)}\nswitch with `/themes <name>`"
+        return f"theme: {app.theme}\ncurated: {', '.join(names)}\nswitch with `/themes <name>` (ctrl+t cycles curated only)"
 
 
 class UpdateCommand(SlashCommand):
@@ -998,7 +1001,7 @@ class UpdateCommand(SlashCommand):
 
             v = _v("sick-agent")
         except Exception:
-            v = "0.5.0"
+            v = "0.5.1"
         return (
             f"sick {v}\n"
             "update (checkout): `git pull && ./install.sh`\n"

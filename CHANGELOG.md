@@ -1,4 +1,9 @@
 # Changelog
+## 0.5.1
+- Fix duplicate agent replies: one SICK header per turn, same-turn follow-ups render as continuations, and near-duplicate (>90% similar) repeated summaries are suppressed; respond prompt now mandates a single final message() `tui/app.py`, `tui/chat.py`, `agent.py`
+- `!bash` no longer triggers an unsolicited agent turn/essay — output is shown and stored silently in the `last_bash` context block for follow-ups `tui/app.py`
+- Theme cycling restricted to Sick's curated themes (`sick`, new `sick-light`); stock Textual themes no longer arrive by accident via ctrl+t (explicit `/themes <stock>` still works) `tui/app.py`, `tui/commands.py`
+
 ## 0.5.0
 - Fix the pomodoro trap (agent looped 25 iterations, delivered nothing): aftermath guard now freezes only on verification/mutation failures — benign exploration (cat/ls/grep misses) never freezes; frozen state is injected into the model's live context with recovery instructions `guard.py`, `agent.py`
 - Circuit breakers against loops: 3rd identical failing call returns a change-approach instruction; 6+ calls without a mutation/verification inject a progress warning into the tool result; 3 verification failures mark the step blocked `tools/registry.py`, `lifecycle.py`, `agent.py`

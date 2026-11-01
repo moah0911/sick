@@ -629,7 +629,9 @@ class SickAgent(InteractiveAgent):
 
         This is a chat session. Do ALL the work before responding: explore,
         implement, test, iterate. Then reply to the user in Markdown with a
-        concise summary of what you did. Call `message()` to send the reply.
+        concise summary of what you did. Call `message()` ONCE, only at the
+        very end, to send that single reply — never narrate intermediate
+        steps or re-send summaries after each tool call.
 
         ponytail: always apply the lazy philosophy.
         """

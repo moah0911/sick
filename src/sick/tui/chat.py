@@ -27,9 +27,7 @@ class ChatView(RichLog):
         # raised ground: user text is yours at a glance, even 200 lines up
         self.write(Text(text[:8000], style="#d8dee9 on #18202e"))
 
-    def add_agent(self, text: str, meta: str = "") -> None:
-        header = f"▌ SICK · {meta}" if meta else "▌ SICK"
-        self.write(Text(header, style="bold #3ecf8e"))
+    def _write_markdown(self, text: str) -> None:
         try:
             self.write(Markdown(text[:20000], hyperlinks=True, code_theme="github-dark"))
         except Exception:
@@ -37,6 +35,15 @@ class ChatView(RichLog):
                 self.write(Markdown(text[:20000], hyperlinks=True))
             except Exception:
                 self.write(Text(text[:8000]))
+
+    def add_agent(self, text: str, meta: str = "") -> None:
+        header = f"▌ SICK · {meta}" if meta else "▌ SICK"
+        self.write(Text(header, style="bold #3ecf8e"))
+        self._write_markdown(text)
+
+    def add_agent_continuation(self, text: str) -> None:
+        """Same-turn follow-up message: no repeated header."""
+        self._write_markdown(text)
 
     def add_thinking(self, text: str) -> None:
         """Render model reasoning (LLMComplete.reasoning_content), dimmed."""
