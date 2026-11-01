@@ -94,6 +94,31 @@ def test_progress_breaker_counts_calls_since_mutation(tmp_path):
     assert any(s["done"] for s in run.plan_steps if s["name"] == "implement")
 
 
+def test_verification_counts_once_per_mutation(tmp_path):
+    lc = Lifecycle(tmp_path)
+    run = lc.start("fix and verify")
+    lc.record(run, ToolResult.success("Wrote", tool="write_file"), {"path": "a.py"})
+    lc.record(run, ToolResult.success("ok", tool="bash"), {"command": "pytest -q"})
+    assert run.calls_since_progress == 0 and len(run.evidences) == 1
+    # re-running the green suite against unchanged code is NOT progress
+    lc.record(run, ToolResult.success("ok", tool="bash"), {"command": "pytest -q"})
+    lc.record(run, ToolResult.success("ok", tool="bash"), {"command": "pytest -q"})
+    assert run.calls_since_progress == 2 and len(run.evidences) == 1
+    # a new mutation makes the next pass count again
+    lc.record(run, ToolResult.success("Wrote", tool="write_file"), {"path": "a.py"})
+    lc.record(run, ToolResult.success("ok", tool="bash"), {"command": "pytest -q"})
+    assert run.calls_since_progress == 0 and len(run.evidences) == 2
+
+
+def test_fuzzy_breaker_trips_on_varied_repeats():
+    reg = ToolRegistry()
+    reg.register(_FakeTool(ToolResult.success("passed", tool="fake")))
+    reg.call("fake", command="uv run pytest test_a.py 2>&1")
+    reg.call("fake", command="uv run pytest test_a.py 2>&1 && python3 -c pass")
+    third = reg.call("fake", command="uv run pytest test_a.py 2>&1; echo done")
+    assert "circuit breaker" in third.output and "repeated 3 times" in third.output
+
+
 def test_skill_routing_finds_installed_skill(tmp_path):
     skills = tmp_path / "skills-home"
     (skills / "codebase-design").mkdir(parents=True)

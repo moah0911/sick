@@ -83,6 +83,17 @@ class SickApp(App):
         scrollbar-size-horizontal: 0;
     }
     ChatView:focus { border: solid $accent; }
+    #status-panel {
+        width: 32;
+        height: 1fr;
+        margin: 0 1 0 0;
+        padding: 1 2;
+        background: $panel;
+        border: solid $surface-lighten-2;
+        color: $foreground;
+        scrollbar-size-vertical: 0;
+        scrollbar-size-horizontal: 0;
+    }
     #status-bar {
         height: 1;
         margin: 0 1;
@@ -141,6 +152,8 @@ class SickApp(App):
         self.commands = SlashCommandRegistry(workspace=getattr(agent, "workspace", Path.cwd()))
         self.pending_task: str | None = None
         self.chat_view: ChatView | None = None
+        self.status_panel: Static | None = None
+        self._sidebar_hidden = False
         self.sick_input: SickInput | None = None
         self.loading: LoadingIndicator | None = None
         self.status_bar: Static | None = None
@@ -195,6 +208,7 @@ class SickApp(App):
         yield Header(show_clock=True)
         with Horizontal(id="body"):
             yield ChatView(id="chat")
+            yield Static("", id="status-panel")
         yield LoadingIndicator()
         yield Static("", id="status-bar")
         yield SickInput(self._on_submit, agent=self.agent, commands=self.commands)
@@ -286,6 +300,22 @@ class SickApp(App):
         ]
         return lines
 
+    def _apply_sidebar_visibility(self, width: int | None = None) -> None:
+        """Panel shows when there's room (>=120 cols) unless user hid it."""
+        if self.status_panel is None:
+            return
+        w = width if width is not None else (self.size.width or 120)
+        self.status_panel.display = (w >= 120) and not self._sidebar_hidden
+
+    def toggle_sidebar(self) -> bool:
+        self._sidebar_hidden = not self._sidebar_hidden
+        self._apply_sidebar_visibility()
+        return bool(self.status_panel and self.status_panel.display)
+
+    def on_resize(self, event) -> None:  # type: ignore[override]
+        size = getattr(event, "size", None)
+        self._apply_sidebar_visibility(size.width if size is not None else None)
+
     def refresh_status(self) -> None:
         """Re-render the status bar from live session state."""
         if self.status_bar is None:
@@ -300,6 +330,9 @@ class SickApp(App):
             state = f"◐ WORKING {elapsed}s · last: {self._last_tool} · llm calls {self._llm_calls}"
         else:
             state = "● READY"
+        if self.status_panel is not None:
+            panel_lines = [ln for ln in self.status_lines() if not ln.startswith("## status")]
+            self.status_panel.update("\n".join(panel_lines))
         self.status_bar.update(
             f" {ws.name} · {self._branch or 'no git'} · {state} · {self._sdlc_compact(run)} · "
             f"ponytail {getattr(self.agent, 'ponytail_mode', 'full')} · "
@@ -312,7 +345,9 @@ class SickApp(App):
         self.chat_view = self.query_one(ChatView)
         self.sick_input = self.query_one(SickInput)
         self.loading = self.query_one(LoadingIndicator)
+        self.status_panel = self.query_one("#status-panel", Static)
         self.status_bar = self.query_one("#status-bar", Static)
+        self._apply_sidebar_visibility()
         self._branch = self._git_branch()
         if self.sick_input:
             self.sick_input.border_title = "message"
