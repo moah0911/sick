@@ -1,4 +1,8 @@
 # Changelog
+## 0.4.1
+- Remove the sidebar: chat is full-width at every terminal size (the fixed-width panel clipped on the right), status/gate/plugins compress into the status bar, full detail moves to a new `/status` command; both scrollbars hidden (stock-blue bars gone, scrolling unchanged) `tui/app.py`
+- Message differentiation: hairline turn separators with number + clock, user blocks on a raised ground, agent headers name the live model, tool lines (steel) vs thinking (warm dim) strata `tui/chat.py`
+
 ## 0.4.0
 - Default plugins are now the real plugins, vendored pinned (`src/sick/bundled/`, `BUNDLED.md` manifest, `scripts/update_bundled_plugins.py`): Ponytail (DietrichGebert/ponytail @96608e0) full SKILL.md always-on with `/ponytail [lite|full|ultra|off]`, `/ponytail-review`, `/ponytail-audit`, `/ponytail-debt`, `/ponytail-help`; Aftermath (moah0911/aftermath @c6e11fa) ladder always-on, 8 playbooks discoverable, `/aftermath [lite|full|ultra|off]`, `/aftermath-status`, `/aftermath-revert`, `/aftermath-log`, `/aftermath-audit`
 - Aftermath enforcement in code at the ToolRegistry seam (`sick/guard.py`, default `full`): destructive commands blocked (path-aware via `.aftermath/config.json`), forward edits frozen while a failure is unresolved, repeat-attempt ledger; sidebar shows plugin states

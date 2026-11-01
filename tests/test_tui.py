@@ -271,10 +271,15 @@ def test_live_feed_streams_tools_thinking_and_stays_visible(tmp_path):
             # busy must never cover the chat with RichLog's loading overlay
             app.chat_view.set_busy(True)
             assert app.chat_view.loading is False
-            # sidebar carries the SDLC phase tracker + gate state
+            # status bar carries the compact SDLC segment; /status has the stepper
             app.refresh_status()
-            panel = str(app.status_panel.content)
-            assert "SDLC" in panel and "requirements" in panel and "gate" in panel
+            assert "sdlc" in str(app.status_bar.content) and "gate" in str(app.status_bar.content)
+            status_out = await app.commands.dispatch(app, "/status")
+            assert "SDLC" in status_out and "requirements" in status_out
+            # messages are distinct: turn separator renders a boundary line
+            app.chat_view.add_turn_separator(2, "10:42")
+            await pilot.pause()
+            assert any("turn 2" in str(ln) for ln in app.chat_view.lines)
             app._on_llm_output(SimpleNamespace(content="print('x')\nprint('y')"))
             await pilot.pause()
             assert any("▸ code:" in str(ln) for ln in app.chat_view.lines)
@@ -481,7 +486,7 @@ def test_leader_keys_dispatch_not_typed(tmp_path):
 
 
 def test_tui_design_layout_theme_and_keys(tmp_path):
-    """Design check: sick theme, sidebar/statusbar, resize, keypresses."""
+    """Design check: sick theme, full-width canvas (no sidebar), status bar, keys."""
     from sick.tui.app import SickApp
 
     async def scenario():
@@ -490,13 +495,19 @@ def test_tui_design_layout_theme_and_keys(tmp_path):
         async with app.run_test(size=(120, 40)) as pilot:
             await pilot.pause()
             assert app.theme == "sick"
-            assert app.status_panel is not None and app.status_bar is not None
-            assert app.status_panel.display is True  # wide: sidebar visible
-            panel_text = str(app.status_panel.content)
-            assert "WORKSPACE" in panel_text and "SESSION" in panel_text
+            assert app.status_bar is not None
+            # no sidebar: nothing competes with the chat for width
+            assert not list(app.query("#status-panel"))
+            assert app.chat_view.size.width >= 110  # nearly full 120-col canvas
             assert "turns" in str(app.status_bar.content)
+            assert "sdlc" in str(app.status_bar.content)  # compact tracker segment
             assert app.chat_view.border_title.startswith("sick")
             assert app.sick_input.border_title == "message"
+            # scrollbars hidden (no stock-blue bars), scrolling still works
+            assert app.chat_view.scrollbar_size_vertical == 0
+            # /status carries the full detail the sidebar used to show
+            status_out = await app.commands.dispatch(app, "/status")
+            assert "SDLC" in status_out and "gate" in status_out and "ponytail" in status_out
             # /help is grouped + carries the keymap
             help_out = await app.commands.dispatch(app, "/help")
             assert "### session" in help_out and "### work" in help_out
@@ -512,18 +523,14 @@ def test_tui_design_layout_theme_and_keys(tmp_path):
             await pilot.press("ctrl+t")
             await pilot.pause()
             assert app.theme != before
-            # /details flips the sidebar view state
+            # /details still flips view state, visible via /status
             out = await app.commands.dispatch(app, "/details")
             assert "on" in out
-            app.refresh_status()
-            assert "details  on" in str(app.status_panel.content)
-            # narrow terminal hides the sidebar, chat keeps the space
+            assert "details on" in await app.commands.dispatch(app, "/status")
+            # narrow terminal: chat still fits, nothing clipped by a panel
             await pilot.resize_terminal(70, 24)
             await pilot.pause()
-            assert app.status_panel.display is False
-            await pilot.resize_terminal(120, 40)
-            await pilot.pause()
-            assert app.status_panel.display is True
+            assert app.chat_view.size.width >= 60
 
     asyncio.run(scenario())
 

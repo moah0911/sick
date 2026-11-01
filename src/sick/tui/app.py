@@ -55,21 +55,14 @@ class SickApp(App):
         height: 1fr;
         border: solid $surface-lighten-2;
         border-title-color: $accent;
-        margin: 0 0 0 1;
+        margin: 0 1;
         padding: 0 1;
         overflow-y: auto;
         background: $surface;
+        scrollbar-size-vertical: 0;
+        scrollbar-size-horizontal: 0;
     }
     ChatView:focus { border: solid $accent; }
-    #status-panel {
-        width: 32;
-        height: 1fr;
-        margin: 0 1 0 1;
-        padding: 1 2;
-        background: $panel;
-        border: solid $surface-lighten-2;
-        color: $foreground;
-    }
     #status-bar {
         height: 1;
         margin: 0 1;
@@ -129,7 +122,6 @@ class SickApp(App):
         self.chat_view: ChatView | None = None
         self.sick_input: SickInput | None = None
         self.loading: LoadingIndicator | None = None
-        self.status_panel: Static | None = None
         self.status_bar: Static | None = None
         self.host = TurnHost(agent, None)  # type: ignore[arg-type]
         # conversation transcript for /export and /compact (role, text)
@@ -180,7 +172,6 @@ class SickApp(App):
         yield Header(show_clock=True)
         with Horizontal(id="body"):
             yield ChatView(id="chat")
-            yield Static("", id="status-panel")
         yield LoadingIndicator()
         yield Static("", id="status-bar")
         yield SickInput(self._on_submit, agent=self.agent, commands=self.commands)
@@ -237,69 +228,66 @@ class SickApp(App):
         lines.append("")
         return lines
 
+    def _sdlc_compact(self, run) -> str:
+        if run is None:
+            return "sdlc —"
+        phase = run.phase.value
+        try:
+            verdict = self.agent.lifecycle.can_deliver(run)
+            gate = "DELIVERED" if phase == "deliver" else ("DELIVERABLE" if verdict.allowed else "BLOCKED")
+        except Exception:
+            gate = phase
+        return f"sdlc {phase} · gate {gate}"
+
+    def status_lines(self) -> list[str]:
+        """Full session status for /status (the sidebar's replacement)."""
+        ws = Path(self.agent.workspace)
+        run = getattr(self.agent, "current_run", None)
+        registry = getattr(self.agent, "registry", None)
+        tools = sum(registry.counts().values()) if registry is not None else 0
+        lines = [
+            "## status",
+            f"workspace: `{ws}` ({self._branch or 'no git'})",
+            f"model: `{self._model_str()}`",
+            *self._sdlc_panel_lines(run),
+            "SESSION",
+            f"  turns   {getattr(self.agent, 'turns', 0)}",
+            f"  tools   {tools}",
+            f"  pending {self.pending_task or '—'}",
+            "PLUGINS",
+            f"  ponytail   {getattr(self.agent, 'ponytail_mode', 'full')}",
+            f"  aftermath  {self.agent.guard.state() if getattr(self.agent, 'guard', None) is not None else 'full'}",
+            f"skills: {len(getattr(self.agent, 'discovered_skills', []) or [])} discovered (/skills)",
+            f"view: details {'on' if self.show_details else 'off'} · thinking {'shown' if self.show_thinking else 'hidden'} · theme {self.theme}",
+        ]
+        return lines
+
     def refresh_status(self) -> None:
-        """Re-render the sidebar + status bar from live session state."""
-        if self.status_panel is None or self.status_bar is None:
+        """Re-render the status bar from live session state."""
+        if self.status_bar is None:
             return
         ws = Path(self.agent.workspace)
         turns = getattr(self.agent, "turns", 0)
         registry = getattr(self.agent, "registry", None)
         tools = sum(registry.counts().values()) if registry is not None else 0
         run = getattr(self.agent, "current_run", None)
-        skills = len(getattr(self.agent, "discovered_skills", []) or [])
         if self._busy_state:
             elapsed = int(time.monotonic() - self._work_started) if self._work_started else 0
             state = f"◐ WORKING {elapsed}s · last: {self._last_tool} · llm calls {self._llm_calls}"
         else:
             state = "● READY"
-        panel = "\n".join([
-            "WORKSPACE",
-            f"  {ws.name or ws}",
-            f"  branch  {self._branch or '—'}",
-            "",
-            "MODEL",
-            f"  {self._model_str()}",
-            "",
-            *self._sdlc_panel_lines(run),
-            "SESSION",
-            f"  turns   {turns}",
-            f"  tools   {tools}",
-            f"  pending {self.pending_task or '—'}",
-            "",
-            "VIEW",
-            f"  details  {'on' if self.show_details else 'off'}  (/details)",
-            f"  thinking {'shown' if self.show_thinking else 'hidden'}  (/thinking)",
-            f"  theme    {self.theme}  (ctrl+t)",
-            "",
-            "PLUGINS",
-            f"  ponytail   {getattr(self.agent, 'ponytail_mode', 'full')}",
-            f"  aftermath  {self.agent.guard.state() if getattr(self.agent, 'guard', None) is not None else 'full'}",
-            "",
-            "SKILLS",
-            f"  {skills} discovered  (/skills lists, /learn improves sick)",
-            "",
-            "KEYS",
-            "  ctrl+x h  help      ctrl+x l  learn",
-            "  ctrl+x u  undo      ctrl+x n  new",
-            "  ctrl+x c  compact   ctrl+x s  sessions",
-        ])
-        self.status_panel.update(panel)
         self.status_bar.update(
-            f" {ws.name} · {self._branch or 'no git'} · {state} · "
+            f" {ws.name} · {self._branch or 'no git'} · {state} · {self._sdlc_compact(run)} · "
+            f"ponytail {getattr(self.agent, 'ponytail_mode', 'full')} · "
             f"{turns} turns · {tools} tools · @file attach · !bash · /help"
         )
         if self.chat_view:
             self.chat_view.border_title = f"sick — {ws.name}" + (" · thinking…" if self._busy_state else "")
 
-    def on_resize(self, event) -> None:  # type: ignore[override]
-        if self.status_panel is not None:
-            self.status_panel.display = event.size.width >= 90
-
     def on_mount(self) -> None:
         self.chat_view = self.query_one(ChatView)
         self.sick_input = self.query_one(SickInput)
         self.loading = self.query_one(LoadingIndicator)
-        self.status_panel = self.query_one("#status-panel", Static)
         self.status_bar = self.query_one("#status-bar", Static)
         self._branch = self._git_branch()
         if self.sick_input:
@@ -329,7 +317,7 @@ class SickApp(App):
         def _safe_add(text: str) -> None:
             self._note("sick", text)
             try:
-                orig_add(text)
+                orig_add(text, meta=self._model_str())
             except Exception as e:
                 self.chat_view.add_tool(f"[render error: {e}]")
                 try:
@@ -613,6 +601,7 @@ class SickApp(App):
         if show:
             self._note("you", text)
         if show and self.chat_view:
+            self.chat_view.add_turn_separator(getattr(self.agent, "turns", 0) + 1, time.strftime("%H:%M"))
             self.chat_view.add_user(text)
         await self.host.submit(expanded)
 

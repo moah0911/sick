@@ -27,7 +27,7 @@ _HELP_GROUPS: list[tuple[str, list[str]]] = [
     ("work", ["plan", "approve", "reject", "run", "visual", "learn"]),
     ("plugins", ["ponytail", "ponytail-review", "ponytail-audit", "ponytail-debt", "ponytail-help", "aftermath", "aftermath-status", "aftermath-revert", "aftermath-log", "aftermath-audit"]),
     ("git & history", ["checkpoint", "restore", "checkpoints", "audit", "stats"]),
-    ("view & setup", ["models", "skills", "details", "thinking", "themes", "connect", "editor", "init", "update", "version", "help", "exit"]),
+    ("view & setup", ["status", "models", "skills", "details", "thinking", "themes", "connect", "editor", "init", "update", "version", "help", "exit"]),
 ]
 
 _KEYMAP = """## keys (ctrl+x leader)
@@ -555,7 +555,7 @@ class VersionCommand(SlashCommand):
 
             v = _v("sick-agent")
         except Exception:
-            v = "0.4.0"
+            v = "0.4.1"
         return f"sick {v}"
 
 
@@ -834,6 +834,15 @@ class AftermathAuditCommand(SlashCommand):
         return "aftermath audit started"
 
 
+class StatusCommand(SlashCommand):
+    name = "status"
+    hint = "full session status (workspace, model, SDLC, plugins)"
+
+    async def run(self, app: SickApp, args: str) -> str | None:
+        lines = app.status_lines() if hasattr(app, "status_lines") else ["## status", "unavailable"]
+        return "\n".join(lines)
+
+
 class SkillsCommand(SlashCommand):
     name = "skills"
     hint = "list discovered skills by source + what this run routed"
@@ -989,7 +998,7 @@ class UpdateCommand(SlashCommand):
 
             v = _v("sick-agent")
         except Exception:
-            v = "0.4.0"
+            v = "0.4.1"
         return (
             f"sick {v}\n"
             "update (checkout): `git pull && ./install.sh`\n"
@@ -1009,7 +1018,7 @@ class SlashCommandRegistry:
             AuditCommand(), StatsCommand(), PlanCommand(), ApproveCommand(), RejectCommand(), RunCommand(),
             CheckpointCommand(), RestoreCommand(), CheckpointsCommand(), VersionCommand(),
             LearnCommand(), UndoCommand(), RedoCommand(), CompactCommand(), ExportCommand(),
-            InitCommand(), SessionsCommand(), SkillsCommand(), DetailsCommand(), ThinkingCommand(),
+            InitCommand(), SessionsCommand(), StatusCommand(), SkillsCommand(), DetailsCommand(), ThinkingCommand(),
             EditorCommand(), ConnectCommand(), ThemesCommand(), UpdateCommand(), PonytailCommand(), PonytailReviewCommand(), PonytailAuditCommand(), PonytailDebtCommand(), PonytailHelpCommand(), AftermathCommand(), AftermathStatusCommand(), AftermathRevertCommand(), AftermathLogCommand(), AftermathAuditCommand(),
         ):
             self.commands[cmd.name] = cmd
