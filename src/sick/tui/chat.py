@@ -43,5 +43,9 @@ class ChatView(RichLog):
         self.write(Text(f"  ✗ {text[:4000]}", style="bold #e5534b"))
 
     def set_busy(self, busy: bool) -> None:
+        # NOTE: never self.loading = busy here — RichLog's built-in loading
+        # overlay covers the whole chat with a spinner, hiding the user
+        # message and all live activity for the entire turn (the "blank
+        # screen while working" bug). Busy is shown in the border title,
+        # status bar, and the height-1 LoadingIndicator row instead.
         self.border_title = "sick · thinking…" if busy else "sick"
-        self.loading = busy

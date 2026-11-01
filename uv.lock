@@ -3574,7 +3574,7 @@ wheels = [
 
 [[package]]
 name = "sick-agent"
-version = "0.2.6"
+version = "0.2.7"
 source = { editable = "." }
 dependencies = [
     { name = "cookiecutter" },

@@ -109,6 +109,17 @@ def test_registry_returns_typed_result_and_counts():
     assert not missing.ok and "unknown tool" in (missing.error or "")
 
 
+def test_registry_activity_streams_start_done():
+    events = []
+    reg = ToolRegistry()
+    reg.activity = events.append
+    reg.register(_FakeTool(ToolResult.success("hi", tool="fake")))
+    reg.call("fake", path="a.py")
+    assert [e["phase"] for e in events] == ["start", "done"]
+    assert events[0]["summary"] == "path=a.py"
+    assert events[1]["ok"] is True and events[1]["duration_ms"] >= 0
+
+
 def test_registry_wraps_legacy_returns():
     reg = ToolRegistry()
     reg.register(_FakeTool("Error: boom"))

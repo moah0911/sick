@@ -30,12 +30,31 @@ def wrap_result(tool: str, raw: Any) -> ToolResult:
     return ToolResult(ok=True, output=raw, tool=tool)
 
 
+def _summarize_args(kwargs: dict) -> str:
+    for key in ("path", "command", "pattern", "query", "url", "message", "name"):
+        if kwargs.get(key):
+            text = str(kwargs[key]).replace("\n", " ")[:70]
+            return f"{key}={text}"
+    return ""
+
+
 class ToolRegistry:
     def __init__(self, audit: Any = None, on_result: Callable[[ToolResult, dict], None] | None = None) -> None:
         self.tools: dict[str, Tool] = {}
         self._counts: dict[str, int] = {}
         self.audit = audit
         self.on_result = on_result
+        # Live activity feed: callable(event dict) fired on tool start/done
+        # so UIs can stream work as it happens (OpenCode-style). Event:
+        # {tool, phase: start|done, summary, ok, duration_ms}
+        self.activity: Callable[[dict], None] | None = None
+
+    def _emit_activity(self, event: dict) -> None:
+        if self.activity is not None:
+            try:
+                self.activity(event)
+            except Exception:
+                pass
 
     def register(self, tool: Tool) -> Tool:
         self.tools[tool.name] = tool
@@ -65,6 +84,8 @@ class ToolRegistry:
         tool = self.tools.get(name)
         if tool is None:
             return ToolResult.failure(f"unknown tool: {name}", tool=name)
+        summary = _summarize_args(kwargs)
+        self._emit_activity({"tool": name, "phase": "start", "summary": summary, "ok": None, "duration_ms": 0})
         start = time.monotonic()
         try:
             result = wrap_result(name, tool.execute(**kwargs))
@@ -72,6 +93,7 @@ class ToolRegistry:
             result = ToolResult.failure(f"{type(e).__name__}: {e}", tool=name)
         result.tool = name
         result.duration_ms = round((time.monotonic() - start) * 1000)
+        self._emit_activity({"tool": name, "phase": "done", "summary": summary, "ok": result.ok, "duration_ms": result.duration_ms})
         self._counts[name] = self._counts.get(name, 0) + 1
         if self.audit is not None:
             try:
