@@ -66,8 +66,28 @@ def _load_remotion_skill(base: Path = REMOTION_SKILL_DIR) -> str:
 
 
 def _get_remotion_prompt() -> str:
+    """Short pointer, not the full skill bodies.
+
+    The full Remotion SKILL.md files cost ~1.3k tokens on every LLM call;
+    they are also in the discovered-skills index and loadable on demand
+    via load_skill(). Always-on context only needs to say they exist.
+    """
     try:
-        return _load_remotion_skill()
+        present = [
+            name
+            for name in ("remotion-best-practices", "remotion-create")
+            if (REMOTION_SKILL_DIR / name / "SKILL.md").is_file()
+        ]
+        if not present:
+            return REMOTION_FALLBACK
+        paths = ", ".join(f"`{REMOTION_SKILL_DIR / name / 'SKILL.md'}`" for name in present)
+        return (
+            "## remotion\n"
+            "You create explanatory videos with Remotion (https://remotion.dev). "
+            f"Full skill instructions are installed at {paths} — read the matching one "
+            "with load_skill(name) or read_file before scaffolding, then render with "
+            "`npx remotion render`." + REMOTION_REFERENCE_HINT
+        )
     except Exception:
         return REMOTION_FALLBACK
 

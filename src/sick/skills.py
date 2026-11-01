@@ -80,15 +80,37 @@ def discover_skills(workspace: str | Path | None = None) -> list[SkillInfo]:
     return sorted(found.values(), key=lambda s: s.name)
 
 
-def skills_index_prompt(skills: list[SkillInfo]) -> str:
-    """Compact index block: one line per skill, full body read on demand."""
+MAX_SKILLS_INDEX_CHARS = 6000
+
+
+def skills_index_prompt(skills: list[SkillInfo], max_chars: int = MAX_SKILLS_INDEX_CHARS) -> str:
+    """Compact index block: one line per skill, full body read on demand.
+
+    Capped: with dozens of skills installed an uncapped index cost ~5k
+    tokens on *every* LLM call — enough by itself to blow small TPM
+    budgets (e.g. Groq free tier, 8k tokens/min). Omitted skills remain
+    loadable by name; the count tells the model they exist.
+    """
     lines = [
         "## skills (installed)",
         "When a task matches a skill below, read its full instructions first "
         "with `read_file` on the given SKILL.md path, then follow them.",
     ]
+    used = sum(len(line) + 1 for line in lines)
+    shown = 0
     for s in skills:
-        lines.append(f"- **{s.name}** — {s.description} (`{s.path / 'SKILL.md'}`)")
+        line = f"- **{s.name}** — {s.description} (`{s.path / 'SKILL.md'}`)"
+        if shown and used + len(line) + 1 > max_chars:
+            break
+        lines.append(line)
+        used += len(line) + 1
+        shown += 1
+    omitted = len(skills) - shown
+    if omitted:
+        lines.append(
+            f"- …and {omitted} more installed skills — `load_skill(name)` loads any by name, "
+            "or list them with `bash ls ~/.agents/skills ~/.sick/skills .sick/skills`"
+        )
     return "\n".join(lines)
 
 

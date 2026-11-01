@@ -132,7 +132,7 @@ class SickApp(App):
         # conversation transcript for /export and /compact (role, text)
         self.transcript: list[tuple[str, str]] = []
         self.show_details = False
-        self.show_thinking = False
+        self.show_thinking = True
         self._can_redo = False
         self._busy_state = False
         self._branch = ""
@@ -282,11 +282,31 @@ class SickApp(App):
                     pass
 
         self.agent._render_message = _safe_add
+        # Live thinking: NOOA emits LLMComplete after every LLM round-trip
+        # with the model's reasoning_content. Nothing subscribed before, so
+        # reasoning models (gpt-oss, o-series, ...) appeared to hang in
+        # silence while they thought. Render it (dimmed) when enabled.
+        try:
+            self.agent.event_manager.on("LLMComplete", self._on_llm_complete)
+        except Exception:
+            pass
         self.host.start()
         self.chat_view.add_tool("ready — /help for commands and keys · @file attach · !cmd bash · /learn improves sick")
         self.chat_view.add_tool(f"workspace: {self.agent.workspace} | model: {self._model_str()}")
         self.refresh_status()
         self.set_focus(self.sick_input)
+
+    def _on_llm_complete(self, event) -> None:
+        """Render one LLM round-trip's reasoning when thinking is visible."""
+        if not self.show_thinking or self.chat_view is None:
+            return
+        reasoning = getattr(event, "reasoning_content", "") or ""
+        if reasoning.strip():
+            self._note("thinking", reasoning)
+            try:
+                self.chat_view.add_thinking(reasoning)
+            except Exception:
+                pass
 
     def _model_str(self) -> str:
         try:
