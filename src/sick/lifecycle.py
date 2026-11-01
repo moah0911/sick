@@ -99,12 +99,14 @@ class Run:
         return Path(self.workspace) / ".sick" / "runs" / self.id
 
 
-# phase -> ordered skill-name keywords for skill-routed phases
+# phase -> keyword families matched against skill name + description, so
+# routing works for the skills people actually install, not just three
+# exact names (design skills, review skills, stack skills all match).
 _PHASE_SKILL_KEYWORDS: dict[Phase, list[str]] = {
-    Phase.REQUIREMENTS: ["domain-modeling", "grilling", "research"],
-    Phase.DESIGN: ["codebase-design", "domain-modeling", "system-design"],
-    Phase.IMPLEMENT: ["tdd", "python-backend", "python-fastapi-development"],
-    Phase.VERIFY: ["tdd", "python-testing-patterns", "pytest-coverage"],
+    Phase.REQUIREMENTS: ["domain-modeling", "grilling", "research", "requirements", "discovery"],
+    Phase.DESIGN: ["codebase-design", "architecture", "design", "adr", "domain"],
+    Phase.IMPLEMENT: ["tdd", "backend", "fastapi", "development", "implementation"],
+    Phase.VERIFY: ["tdd", "testing", "pytest", "coverage", "review", "verification"],
 }
 
 
@@ -316,7 +318,8 @@ class Lifecycle:
         skills = self._skills()
         for kw in keywords:
             for skill in skills:
-                if kw in skill.name:
+                haystack = f"{skill.name} {skill.description}".lower()
+                if kw in haystack:
                     return skill
         return None
 

@@ -271,6 +271,10 @@ def test_live_feed_streams_tools_thinking_and_stays_visible(tmp_path):
             # busy must never cover the chat with RichLog's loading overlay
             app.chat_view.set_busy(True)
             assert app.chat_view.loading is False
+            # sidebar carries the SDLC phase tracker + gate state
+            app.refresh_status()
+            panel = str(app.status_panel.content)
+            assert "SDLC" in panel and "requirements" in panel and "gate" in panel
             app._on_llm_output(SimpleNamespace(content="print('x')\nprint('y')"))
             await pilot.pause()
             assert any("▸ code:" in str(ln) for ln in app.chat_view.lines)

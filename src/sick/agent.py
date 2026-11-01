@@ -18,6 +18,7 @@ from sick.tools.registry import ToolRegistry
 from sick.tools.research import CodeResearch
 from sick.tools.search import Glob, Grep
 from sick.tools.self import SelfRead, SelfWrite
+from sick.tools.skill import LoadSkill
 from sick.tools.web import FetchUrl
 
 PONYTAIL_PROMPT = """## ponytail (always active)
@@ -194,7 +195,7 @@ class SickAgent(InteractiveAgent):
             Bash(self.workspace), Grep(self.workspace), Glob(self.workspace),
             ParsePdf(self.workspace), code_research_tool, SelfRead(), SelfWrite(),
             FetchUrl(), Checkpoint(self.workspace), Restore(self.workspace),
-            ListCheckpoints(self.workspace),
+            ListCheckpoints(self.workspace), LoadSkill(self.workspace),
         ]:
             t.excluded = merged_excluded
             self.registry.register(t)
@@ -273,6 +274,15 @@ class SickAgent(InteractiveAgent):
         if approved:
             self.lifecycle.approve(run)
         self.current_run = run
+        # Re-rank the skills index for this task (name/description match),
+        # so the fixed context budget holds relevant skills, not A–Z filler.
+        try:
+            from sick.skills import skills_index_prompt
+
+            if self.discovered_skills:
+                self.context["skills"] = skills_index_prompt(self.discovered_skills, query=task)
+        except Exception:
+            pass
         for phase in (Phase.REQUIREMENTS, Phase.DESIGN, Phase.VERIFY):
             routed = self.lifecycle.route_skill(run, phase)
             if routed:
@@ -377,12 +387,7 @@ class SickAgent(InteractiveAgent):
 
     def load_skill(self, name: str) -> str:
         """Load the full instructions of an installed skill by name (see the skills index)."""
-        from sick.skills import load_skill_body
-
-        body = load_skill_body(name, self.workspace)
-        if body is not None and self.current_run is not None:
-            self.lifecycle.record(self.current_run, ToolResult.success(body[:200], tool="load_skill"), {"name": name})
-        return body if body is not None else f"Error: unknown skill: {name}"
+        return str(self._call("load_skill", name=name))
 
     def checkpoint(self, message: str = "checkpoint") -> str:
         return str(self._call("checkpoint", message=message))

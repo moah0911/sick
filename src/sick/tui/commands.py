@@ -26,7 +26,7 @@ _HELP_GROUPS: list[tuple[str, list[str]]] = [
     ("session", ["clear", "sessions", "compact", "export", "undo", "redo"]),
     ("work", ["plan", "approve", "reject", "run", "visual", "learn"]),
     ("git & history", ["checkpoint", "restore", "checkpoints", "audit", "stats"]),
-    ("view & setup", ["models", "details", "thinking", "themes", "connect", "editor", "init", "update", "version", "help", "exit"]),
+    ("view & setup", ["models", "skills", "details", "thinking", "themes", "connect", "editor", "init", "update", "version", "help", "exit"]),
 ]
 
 _KEYMAP = """## keys (ctrl+x leader)
@@ -554,7 +554,7 @@ class VersionCommand(SlashCommand):
 
             v = _v("sick-agent")
         except Exception:
-            v = "0.2.9"
+            v = "0.3.0"
         return f"sick {v}"
 
 
@@ -697,6 +697,43 @@ class SessionsCommand(SlashCommand):
         return "\n".join(lines)
 
 
+class SkillsCommand(SlashCommand):
+    name = "skills"
+    hint = "list discovered skills by source + what this run routed"
+
+    async def run(self, app: SickApp, args: str) -> str | None:
+        from pathlib import Path
+
+        discovered = getattr(app.agent, "discovered_skills", []) or []
+        if not discovered:
+            return "no skills discovered — install SKILL.md under ~/.agents/skills, ~/.sick/skills, or .sick/skills"
+        ws = Path(getattr(app.agent, "workspace", ".")).resolve()
+        home = Path.home()
+        groups: dict[str, list] = {"workspace": [], "user": [], "host": []}
+        for s in discovered:
+            p = Path(s.path)
+            if ws in p.parents and ".sick" in p.parts:
+                groups["workspace"].append(s)
+            elif home / ".sick" in p.parents:
+                groups["user"].append(s)
+            else:
+                groups["host"].append(s)
+        lines = ["## skills"]
+        for label in ("workspace", "user", "host"):
+            items = groups[label]
+            if items:
+                lines.append(f"### {label} ({len(items)})")
+                lines += [f"- **{s.name}** — {s.description}" for s in items[:15]]
+                if len(items) > 15:
+                    lines.append(f"- …and {len(items) - 15} more")
+        run = getattr(app.agent, "current_run", None)
+        if run is not None and run.skills:
+            lines.append("### routed this run")
+            lines += [f"- {phase}: `{name}`" for phase, name in run.skills.items()]
+        lines.append("load any skill in chat via the agent, e.g. ask it to `load_skill(name)`")
+        return "\n".join(lines)
+
+
 class DetailsCommand(SlashCommand):
     name = "details"
     hint = "toggle verbose tool output"
@@ -813,7 +850,7 @@ class UpdateCommand(SlashCommand):
 
             v = _v("sick-agent")
         except Exception:
-            v = "0.2.9"
+            v = "0.3.0"
         return (
             f"sick {v}\n"
             "update (checkout): `git pull && ./install.sh`\n"
@@ -833,7 +870,7 @@ class SlashCommandRegistry:
             AuditCommand(), StatsCommand(), PlanCommand(), ApproveCommand(), RejectCommand(), RunCommand(),
             CheckpointCommand(), RestoreCommand(), CheckpointsCommand(), VersionCommand(),
             LearnCommand(), UndoCommand(), RedoCommand(), CompactCommand(), ExportCommand(),
-            InitCommand(), SessionsCommand(), DetailsCommand(), ThinkingCommand(),
+            InitCommand(), SessionsCommand(), SkillsCommand(), DetailsCommand(), ThinkingCommand(),
             EditorCommand(), ConnectCommand(), ThemesCommand(), UpdateCommand(),
         ):
             self.commands[cmd.name] = cmd

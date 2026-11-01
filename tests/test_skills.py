@@ -64,6 +64,32 @@ def test_skills_index_is_capped(tmp_path, monkeypatch):
     assert "load_skill(name)" in idx
 
 
+def test_rank_skills_by_relevance():
+    from sick.skills import SkillInfo, rank_skills
+
+    skills = [
+        SkillInfo("alpha", "generic helper", Path("/x/alpha")),
+        SkillInfo("pytest-coverage", "run tests with coverage", Path("/x/pytest-coverage")),
+        SkillInfo("zeta", "unrelated", Path("/x/zeta")),
+    ]
+    ranked = rank_skills(skills, "run the tests and check coverage")
+    assert ranked[0].name == "pytest-coverage"
+
+
+def test_load_skill_goes_through_registry(tmp_path, monkeypatch):
+    from sick.agent import SickAgent
+
+    _make_skill(tmp_path, "alpha", "Alpha skill", body="ALPHA BODY")
+    monkeypatch.setenv("SICK_SKILLS_DIR", str(tmp_path))
+    agent = SickAgent(workspace=tmp_path)
+    assert "load_skill" in agent.registry.tools
+    assert agent.load_skill("alpha") == "ALPHA BODY"
+    assert agent.registry.counts().get("load_skill") == 1
+    entries = agent.audit.entries()
+    assert any(e["tool"] == "load_skill" and e["ok"] for e in entries)
+    assert "unknown skill" in agent.load_skill("nope")
+
+
 def test_agent_indexes_discovered_skills(tmp_path, monkeypatch):
     from sick.agent import SickAgent
 
