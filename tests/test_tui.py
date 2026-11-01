@@ -287,6 +287,39 @@ def test_live_feed_streams_tools_thinking_and_stays_visible(tmp_path):
     asyncio.run(scenario())
 
 
+def test_messages_coalesce_and_dedupe_per_turn(tmp_path):
+    from sick.tui.app import SickApp
+
+    async def scenario():
+        agent = FakeAgent(str(tmp_path))
+        app = SickApp(agent)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            app.agent._render_message("Here is the summary of the workspace files and contents.")
+            app.agent._render_message("Here is the summary of the workspace files and contents!")
+            app.agent._render_message("A completely different follow-up thought about tests.")
+            await pilot.pause()
+            lines = [str(ln) for ln in app.chat_view.lines]
+            headers = [ln for ln in lines if "SICK" in ln]
+            assert len(headers) == 1, headers  # one header per turn
+            assert any("completely different" in ln for ln in lines)  # continuation kept
+            assert any(role == "sick-suppressed" for role, _ in app.transcript)
+
+    asyncio.run(scenario())
+
+
+def test_theme_cycle_stays_in_curated_set(tmp_path):
+    from sick.tui.app import CURATED_THEMES, SickApp
+
+    app = SickApp(FakeAgent(str(tmp_path)))
+    seen = []
+    for _ in range(5):
+        app.action_cycle_theme()
+        seen.append(app.theme)
+    assert set(seen) <= set(CURATED_THEMES), seen
+    assert "solarized-dark" not in seen
+
+
 def test_stats_command():
     from sick.tui.app import SickApp
 
@@ -388,9 +421,9 @@ def test_details_thinking_connect_themes_update(tmp_path, monkeypatch):
         assert "providers" in out and "API_KEY" in out
         assert "sk-" not in out  # never leak key values
         out = await app.commands.dispatch(app, "/themes")
-        assert "available:" in out
+        assert "curated:" in out and "sick-light" in out
         out = await app.commands.dispatch(app, "/themes textual-light")
-        assert "textual-light" in out
+        assert "textual-light" in out  # explicit stock names still work deliberately
         out = await app.commands.dispatch(app, "/themes nope-theme")
         assert "unknown theme" in out
         out = await app.commands.dispatch(app, "/update")
@@ -559,9 +592,11 @@ def test_tui_pilot_mounts_and_runs_commands(tmp_path):
             expanded = app._expand_attachments("read @notes.txt please")
             assert "pilot context" in expanded
             await app._handle_input("!echo pilot-bash-ok")
-            deadline = time.time() + 5
-            while not agent.received and time.time() < deadline:
-                await asyncio.sleep(0.05)
-            assert any("pilot-bash-ok" in (r or "") for r in agent.received)
+            await asyncio.sleep(0.3)
+            await pilot.pause()
+            # !bash is silent now: output shown + context set, no agent turn
+            assert not agent.received
+            assert any("pilot-bash-ok" in str(ln) for ln in app.chat_view.lines)
+            assert "pilot-bash-ok" in str(agent.context["last_bash"])
 
     asyncio.run(scenario())

@@ -39,6 +39,26 @@ SICK_THEME = Theme(
     dark=True,
 )
 
+SICK_LIGHT_THEME = Theme(
+    name="sick-light",
+    primary="#0e9f6e",
+    secondary="#b8860b",
+    accent="#0f766e",
+    foreground="#1c2733",
+    background="#f4f6f8",
+    surface="#ffffff",
+    panel="#e8edf2",
+    success="#0e9f6e",
+    warning="#b8860b",
+    error="#c0392b",
+    dark=False,
+)
+
+# ctrl+t / /themes cycle only Sick's own themes: stock Textual themes
+# (solarized, tokyo-night, ...) fight the design system and arrived by
+# accident. Explicit `/themes <stock-name>` still works deliberately.
+CURATED_THEMES = ["sick", "sick-light"]
+
 
 class SickApp(App):
     """Sick coding agent TUI — complete."""
@@ -115,6 +135,7 @@ class SickApp(App):
     def __init__(self, agent, **kwargs) -> None:
         super().__init__(**kwargs)
         self.register_theme(SICK_THEME)
+        self.register_theme(SICK_LIGHT_THEME)
         self.theme = "sick"
         self.agent = agent
         self.commands = SlashCommandRegistry(workspace=getattr(agent, "workspace", Path.cwd()))
@@ -134,6 +155,8 @@ class SickApp(App):
         self._last_tool = "—"
         self._llm_calls = 0
         self._ui_thread = 0
+        self._turn_msg_rendered = False
+        self._last_msg_norm = ""
         self._branch = ""
         self._leader = False
 
@@ -316,9 +339,25 @@ class SickApp(App):
         orig_add = self.chat_view.add_agent
 
         def _safe_add(text: str) -> None:
+            # One SICK header per turn; later message() calls in the same
+            # turn render as continuations, and near-duplicates of the
+            # previous message are suppressed entirely (models re-send
+            # near-identical summaries after each tool batch).
+            import difflib
+
+            norm = " ".join(text.lower().split())
+            if self._turn_msg_rendered and norm and self._last_msg_norm:
+                if difflib.SequenceMatcher(None, norm, self._last_msg_norm).ratio() > 0.9:
+                    self._note("sick-suppressed", text)
+                    return
             self._note("sick", text)
+            self._last_msg_norm = norm
             try:
-                orig_add(text, meta=self._model_str())
+                if self._turn_msg_rendered:
+                    self.chat_view.add_agent_continuation(text)
+                else:
+                    orig_add(text, meta=self._model_str())
+                    self._turn_msg_rendered = True
             except Exception as e:
                 self.chat_view.add_tool(f"[render error: {e}]")
                 try:
@@ -481,7 +520,7 @@ class SickApp(App):
         asyncio.create_task(self._handle_input("/details"))
 
     def action_cycle_theme(self) -> None:
-        names = sorted(self.available_themes)
+        names = [n for n in CURATED_THEMES if n in self.available_themes]
         if not names:
             return
         idx = names.index(self.theme) if self.theme in names else -1
@@ -592,16 +631,21 @@ class SickApp(App):
                 self.chat_view.add_error(display)
             else:
                 self.chat_view.add_tool(display)
-        await self._send(
-            f"[you ran a shell command] `{command}`\n\noutput:\n```\n{output[:MAX_BASH_CHARS]}\n```",
-            show=False,
-        )
+        # Silent context only: the agent can see what the shell did if the
+        # user follows up, but no hidden turn is submitted — a shell
+        # command must not trigger an unsolicited workspace tour/essay.
+        try:
+            self.agent.context["last_bash"] = f"$ {command}\n{output[:MAX_BASH_CHARS]}"
+        except Exception:
+            pass
 
     async def _send(self, text: str, show: bool = True) -> None:
         expanded = self._expand_attachments(text)
         if show:
             self._note("you", text)
         if show and self.chat_view:
+            self._turn_msg_rendered = False
+            self._last_msg_norm = ""
             self.chat_view.add_turn_separator(getattr(self.agent, "turns", 0) + 1, time.strftime("%H:%M"))
             self.chat_view.add_user(text)
         await self.host.submit(expanded)
