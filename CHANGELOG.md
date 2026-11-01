@@ -1,4 +1,8 @@
 # Changelog
+## 0.3.0
+- Premium TUI redesign (anti-slop, Operate mode — see DESIGN.md): precision-instrument identity with layered near-black tokens, sharp borders, left-rule message components with syntax-highlighted code, tree-glyph tool feed, hairline THINKING label, structured status fields, and a live SDLC phase tracker in the sidebar (requirements → design → implement → verify → deliver + gate verdict + routed skill) `tui/app.py`, `tui/chat.py`, `DESIGN.md`
+- Skills handling upgraded: task-relevance-ranked skills index (replaces alphabetical truncation), keyword-family phase routing that matches real installed skills, `load_skill` is now a registered tool (audited, counted, streamed in the live feed, fixes a registry arg collision it exposed), new `/skills` command grouped by source with per-run routing `skills.py`, `lifecycle.py`, `tools/skill.py`, `agent.py`
+
 ## 0.2.9
 - Lint cleanup only (import formatting, unused test names); no behaviour change from 0.2.8
 

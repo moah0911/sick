@@ -21,18 +21,19 @@ MAX_ATTACH_BYTES = 100_000
 MAX_BASH_CHARS = 4_000
 MAX_TOTAL_ATTACH = 300_000
 
-# sick's own theme: calm dark slate, green = go/healthy, amber = attention.
-# (deliberately no purple/blue gradients or magenta accents)
+# sick's own theme (see DESIGN.md): a precision instrument — layered
+# near-black values, one emerald accent, amber/red strictly semantic.
+# No gradients, no bubbles, no decoration for its own sake.
 SICK_THEME = Theme(
     name="sick",
-    primary="#2fbf71",
+    primary="#3ecf8e",
     secondary="#e0b341",
     accent="#3fb6a8",
-    foreground="#d7dee8",
-    background="#101418",
-    surface="#171d24",
-    panel="#1d242e",
-    success="#2fbf71",
+    foreground="#d8dee9",
+    background="#0b0e13",
+    surface="#12161d",
+    panel="#161c26",
+    success="#3ecf8e",
     warning="#e0b341",
     error="#e5534b",
     dark=True,
@@ -52,21 +53,21 @@ class SickApp(App):
     ChatView {
         width: 1fr;
         height: 1fr;
-        border: round $surface-lighten-2;
+        border: solid $surface-lighten-2;
         border-title-color: $accent;
         margin: 0 0 0 1;
         padding: 0 1;
         overflow-y: auto;
         background: $surface;
     }
-    ChatView:focus { border: round $accent; }
+    ChatView:focus { border: solid $accent; }
     #status-panel {
-        width: 30;
+        width: 32;
         height: 1fr;
         margin: 0 1 0 1;
         padding: 1 2;
         background: $panel;
-        border: round $surface-lighten-2;
+        border: solid $surface-lighten-2;
         color: $foreground;
     }
     #status-bar {
@@ -197,6 +198,45 @@ class SickApp(App):
         except Exception:
             return ""
 
+    _SDLC_PHASES = ["requirements", "design", "implement", "verify", "deliver"]
+
+    def _sdlc_panel_lines(self, run) -> list[str]:
+        """Vertical SDLC stepper + gate line for the sidebar (DESIGN.md)."""
+        lines = ["SDLC"]
+        if run is None:
+            lines += [f"  ○ {p}" for p in self._SDLC_PHASES]
+            lines += ["  gate  —", ""]
+            return lines
+        phase = run.phase.value
+        if phase in ("deliver", "blocked", "cancelled"):
+            current_idx = len(self._SDLC_PHASES) - 1
+        elif phase in self._SDLC_PHASES:
+            current_idx = self._SDLC_PHASES.index(phase)
+        else:
+            current_idx = 0
+        for i, name in enumerate(self._SDLC_PHASES):
+            if phase == "deliver" or i < current_idx:
+                mark = "✓"
+            elif i == current_idx:
+                mark = "●" if phase != "blocked" else "✗"
+            else:
+                mark = "○"
+            suffix = f"  ← {run.skills.get(name, '')}" if run.skills.get(name) and i == current_idx else ""
+            lines.append(f"  {mark} {name}{suffix}")
+        lines.append(f"  tier  {run.tier.value}")
+        try:
+            verdict = self.agent.lifecycle.can_deliver(run)
+            if phase == "deliver":
+                lines.append("  gate  DELIVERED")
+            elif verdict.allowed:
+                lines.append("  gate  DELIVERABLE")
+            else:
+                lines.append(f"  gate  BLOCKED · {verdict.reasons[0][:60]}" if verdict.reasons else "  gate  BLOCKED")
+        except Exception:
+            lines.append(f"  gate  {phase}")
+        lines.append("")
+        return lines
+
     def refresh_status(self) -> None:
         """Re-render the sidebar + status bar from live session state."""
         if self.status_panel is None or self.status_bar is None:
@@ -206,13 +246,12 @@ class SickApp(App):
         registry = getattr(self.agent, "registry", None)
         tools = sum(registry.counts().values()) if registry is not None else 0
         run = getattr(self.agent, "current_run", None)
-        sdlc_line = f"  sdlc    {run.phase.value}/{run.tier.value}" if run is not None else "  sdlc    —"
         skills = len(getattr(self.agent, "discovered_skills", []) or [])
         if self._busy_state:
             elapsed = int(time.monotonic() - self._work_started) if self._work_started else 0
-            state = f"working {elapsed}s · last: {self._last_tool} · llm calls {self._llm_calls}"
+            state = f"◐ WORKING {elapsed}s · last: {self._last_tool} · llm calls {self._llm_calls}"
         else:
-            state = "ready"
+            state = "● READY"
         panel = "\n".join([
             "WORKSPACE",
             f"  {ws.name or ws}",
@@ -221,10 +260,10 @@ class SickApp(App):
             "MODEL",
             f"  {self._model_str()}",
             "",
+            *self._sdlc_panel_lines(run),
             "SESSION",
             f"  turns   {turns}",
             f"  tools   {tools}",
-            sdlc_line,
             f"  pending {self.pending_task or '—'}",
             "",
             "VIEW",
@@ -233,7 +272,7 @@ class SickApp(App):
             f"  theme    {self.theme}  (ctrl+t)",
             "",
             "SKILLS",
-            f"  {skills} discovered  (/learn improves sick)",
+            f"  {skills} discovered  (/skills lists, /learn improves sick)",
             "",
             "KEYS",
             "  ctrl+x h  help      ctrl+x l  learn",
@@ -367,7 +406,7 @@ class SickApp(App):
                 return
             self._note("tool", line)
             try:
-                self.chat_view.add_tool(line)
+                self.chat_view.add_activity(line)
             except Exception:
                 pass
 

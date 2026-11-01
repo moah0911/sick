@@ -80,7 +80,8 @@ class ToolRegistry:
         bash.sandboxed = value  # type: ignore[attr-defined]
         return True
 
-    def call(self, name: str, **kwargs: Any) -> ToolResult:
+    def call(self, tool_name: str, **kwargs: Any) -> ToolResult:
+        name = tool_name
         tool = self.tools.get(name)
         if tool is None:
             return ToolResult.failure(f"unknown tool: {name}", tool=name)

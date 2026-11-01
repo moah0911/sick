@@ -83,7 +83,31 @@ def discover_skills(workspace: str | Path | None = None) -> list[SkillInfo]:
 MAX_SKILLS_INDEX_CHARS = 6000
 
 
-def skills_index_prompt(skills: list[SkillInfo], max_chars: int = MAX_SKILLS_INDEX_CHARS) -> str:
+def _terms(text: str) -> set[str]:
+    return {w for w in re.findall(r"[a-z0-9]+", text.lower()) if len(w) > 2}
+
+
+def rank_skills(skills: list[SkillInfo], query: str = "", limit: int = 12) -> list[SkillInfo]:
+    """Order skills by relevance to a task (name hits weigh most).
+
+    The index budget is fixed; what fills it should be the skills that
+    match *this* task, not the first N alphabetically.
+    """
+    q = _terms(query)
+    if not q:
+        return list(skills)[:limit]
+
+    def score(s: SkillInfo) -> tuple[int, str]:
+        name_hits = len(q & _terms(s.name.replace("-", " "))) * 3
+        desc_hits = len(q & _terms(s.description))
+        return (name_hits + desc_hits, s.name)
+
+    return sorted(skills, key=score, reverse=True)[:limit]
+
+
+def skills_index_prompt(
+    skills: list[SkillInfo], max_chars: int = MAX_SKILLS_INDEX_CHARS, query: str = ""
+) -> str:
     """Compact index block: one line per skill, full body read on demand.
 
     Capped: with dozens of skills installed an uncapped index cost ~5k
@@ -98,7 +122,7 @@ def skills_index_prompt(skills: list[SkillInfo], max_chars: int = MAX_SKILLS_IND
     ]
     used = sum(len(line) + 1 for line in lines)
     shown = 0
-    for s in skills:
+    for s in rank_skills(skills, query, limit=len(skills)):
         line = f"- **{s.name}** — {s.description} (`{s.path / 'SKILL.md'}`)"
         if shown and used + len(line) + 1 > max_chars:
             break
