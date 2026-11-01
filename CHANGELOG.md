@@ -1,4 +1,11 @@
 # Changelog
+## 0.8.0
+- Repo guardian: `sick watch` polls the workspace, re-runs verification on change (debounced), and makes one bounded, checkpointed, SDLC-gated fix attempt per failure — max 2 attempts per failure signature, then stops and reports in AFTERMATH.log; never commits or pushes; refuses non-git workspaces without --force. Core is callback-driven and unit-tested `guardian.py`, `cli.py`
+- Skills from success: `/distill` turns a delivered run into a draft SKILL.md built deterministically from run artifacts (task, plan steps, tool sequence, files, passing verification); drafts are invisible to discovery until `/distill approve <name>` activates them `agent.py`, `tui/commands.py`
+
+## 0.6.0
+- Tool genesis: the agent grows its own tools. `create_tool` writes a Tool subclass to `.sick/tools/`, validates it in a subprocess (import + smoke run), registers it live, and persists it across sessions with a provenance manifest; grown tools never shadow builtins and reload at startup. `use_tool` calls them, `/tools` lists builtin vs grown, `SICK_TOOL_GENESIS=off` / `tool_genesis = false` disables `tools/genesis.py`, `agent.py`
+
 ## 0.5.2
 - Right panel back, responsive: shows at >=120 cols, auto-hides below (chat keeps the width), `/sidebar` toggles manually; panel and `/status` share one source of truth `tui/app.py`, `tui/commands.py`
 - Loop hardening v2: verification counts as progress only once per mutation (green-suite re-runs no longer launder loops), fuzzy circuit breaker keys on normalized call signatures so suffix-varied repeats trip it `lifecycle.py`, `tools/registry.py`

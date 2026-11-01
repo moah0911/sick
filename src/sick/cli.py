@@ -20,7 +20,7 @@ try:
     except Exception:
         __version__ = _pkg_version("sick")
 except Exception:
-    __version__ = "0.5.2"
+    __version__ = "0.8.0"
 
 
 def main() -> None:
@@ -38,6 +38,9 @@ def main() -> None:
     parser.add_argument("--version", action="version", version=__version__)
     parser.add_argument("--template", choices=["fastapi", "remotion", "cli"], help="Scaffold from template")
     parser.add_argument("--list-templates", action="store_true", help="List available templates")
+    parser.add_argument("--watch", action="store_true", help="Repo guardian: watch for changes, verify, auto-fix small breakages (bounded)")
+    parser.add_argument("--watch-budget", type=int, default=2, help="Guardian max fix attempts per failure signature")
+    parser.add_argument("--force", action="store_true", help="Allow guardian in a non-git workspace (edits are checkpointed only with git)")
     parser.add_argument("--lsp", action="store_true", help="Start LSP server (stdio)")
     parser.add_argument("--lsp-tcp", type=int, default=None, help="Start LSP on TCP port")
     args = parser.parse_args()
@@ -172,6 +175,28 @@ def main() -> None:
         if verdict is not None and not verdict.allowed:
             print(f"SDLC gate: BLOCKED — {'; '.join(verdict.reasons)}", file=sys.stderr)
             sys.exit(3)
+    elif args.watch:
+        from sick.guardian import Guardian
+
+        if not (workspace / ".git").exists() and not args.force:
+            print("sick watch: refusing to auto-edit a non-git workspace (no checkpoint safety net).", file=sys.stderr)
+            print("hint: git init first, or pass --force if you accept the risk.", file=sys.stderr)
+            sys.exit(2)
+
+        def _guardian_fix(signature: str, output: str) -> bool:
+            agent.checkpoint("guardian pre-fix")
+            task = (
+                "Guardian: the workspace verification is failing. Fix it minimally.\n\n"
+                f"Failure output (tail):\n{output[-1200:]}\n\n"
+                "Make the smallest correct change, re-run the verification, and summarize."
+            )
+            agent.begin_run(task, approved=True)
+            asyncio.run(agent.run(task))
+            verdict = agent.finish_run("guardian fix")
+            return bool(verdict and verdict.allowed)
+
+        print(f"guardian watching {workspace} (budget {args.watch_budget}/signature, ctrl+c stops)", file=sys.stderr)
+        Guardian(workspace, fix_fn=_guardian_fix, max_attempts=args.watch_budget).run_forever()
     elif args.task:
         task = args.task
         # opencode-like: `sick /my-command args` expands custom command even in CLI one-shot
