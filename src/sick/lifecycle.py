@@ -91,6 +91,7 @@ class Run:
     skills: dict[str, str] = field(default_factory=dict)
     calls_since_progress: int = 0
     verify_failures: int = 0
+    verified_mutation_seq: int = 0
     plan_steps: list[dict[str, Any]] = field(default_factory=lambda: [
         {"name": "explore", "done": False},
         {"name": "implement", "done": False},
@@ -202,14 +203,19 @@ class Lifecycle:
             if DESTRUCTIVE_RE.search(command):
                 run.risky_flags.append("destructive/migration bash")
             if VERIFY_RE.search(command):
-                if result.ok:
+                # Verification is progress only once per mutation. Re-running
+                # an already-green suite against unchanged code is a loop,
+                # not diligence (the 0.5.1 commit-task screenshot: 9 passes).
+                fresh = run.last_mutation_seq > run.verified_mutation_seq
+                if result.ok and fresh:
+                    run.verified_mutation_seq = run.last_mutation_seq
                     run.calls_since_progress = 0
                     run.verify_failures = 0
                     self._step(run, "verify")
                     run.evidences.append(Evidence(tool=tool, detail=command[:120], seq=run.seq, at=time.time()))
                     if run.mutations:
                         run.phase = Phase.VERIFY
-                else:
+                elif not result.ok:
                     run.verify_failures += 1
         if tool == "checkpoint" and result.ok and "checkpoint created" in str(result.output):
             run.checkpointed = True

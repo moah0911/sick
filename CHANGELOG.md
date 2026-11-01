@@ -1,4 +1,9 @@
 # Changelog
+## 0.5.2
+- Right panel back, responsive: shows at >=120 cols, auto-hides below (chat keeps the width), `/sidebar` toggles manually; panel and `/status` share one source of truth `tui/app.py`, `tui/commands.py`
+- Loop hardening v2: verification counts as progress only once per mutation (green-suite re-runs no longer launder loops), fuzzy circuit breaker keys on normalized call signatures so suffix-varied repeats trip it `lifecycle.py`, `tools/registry.py`
+- Bundled `/commit` prompt-command with a deterministic GitHub flow (auth check first, fail fast, never force-push, never commit .env); workspace commands override it `bundled/commands/commit.md`
+
 ## 0.5.1
 - Fix duplicate agent replies: one SICK header per turn, same-turn follow-ups render as continuations, and near-duplicate (>90% similar) repeated summaries are suppressed; respond prompt now mandates a single final message() `tui/app.py`, `tui/chat.py`, `agent.py`
 - `!bash` no longer triggers an unsolicited agent turn/essay — output is shown and stored silently in the `last_bash` context block for follow-ups `tui/app.py`

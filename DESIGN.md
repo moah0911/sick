@@ -31,7 +31,9 @@ no emoji decoration. Color is semantic or it is absent.
   on completion (✗ in error color). Verbatim Sick tool names, never renamed.
 - **Thinking:** `THINKING` hairline label, dim italic body, subordinate to
   the reply. Toggle: `/thinking`.
-- **No sidebar.** The chat canvas is full-width; scrollbars are hidden
+- **Responsive sidebar.** Right panel (32 cells) shows at >=120 cols and
+  auto-hides below it so the chat always keeps a usable width;
+  `/sidebar` toggles it manually. Scrollbars are hidden everywhere
   (scrolling via wheel/keys) so no stock-colored bars ever appear.
 - **SDLC tracker:** compact segment in the status bar
   (`sdlc design · gate BLOCKED`); the full vertical stepper

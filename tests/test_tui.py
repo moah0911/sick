@@ -320,6 +320,19 @@ def test_theme_cycle_stays_in_curated_set(tmp_path):
     assert "solarized-dark" not in seen
 
 
+def test_bundled_commit_command_registered(tmp_path):
+    from sick.tui.app import SickApp
+
+    app = SickApp(FakeAgent(str(tmp_path)))
+    cmd = app.commands.commands.get("commit")
+    assert cmd is not None and "GitHub" in cmd.hint
+    # workspace override wins over the bundled default
+    (tmp_path / ".sick" / "commands").mkdir(parents=True)
+    (tmp_path / ".sick" / "commands" / "commit.md").write_text("---\ndescription: custom commit flow\n---\nDo it my way $ARGUMENTS\n")
+    app2 = SickApp(FakeAgent(str(tmp_path)))
+    assert "custom commit flow" in app2.commands.commands["commit"].hint
+
+
 def test_stats_command():
     from sick.tui.app import SickApp
 
@@ -529,9 +542,10 @@ def test_tui_design_layout_theme_and_keys(tmp_path):
             await pilot.pause()
             assert app.theme == "sick"
             assert app.status_bar is not None
-            # no sidebar: nothing competes with the chat for width
-            assert not list(app.query("#status-panel"))
-            assert app.chat_view.size.width >= 110  # nearly full 120-col canvas
+            # sidebar restored but responsive: shown wide, chat keeps room
+            assert list(app.query("#status-panel"))
+            assert app.status_panel.display is True
+            assert app.chat_view.size.width >= 75
             assert "turns" in str(app.status_bar.content)
             assert "sdlc" in str(app.status_bar.content)  # compact tracker segment
             assert app.chat_view.border_title.startswith("sick")
@@ -560,10 +574,14 @@ def test_tui_design_layout_theme_and_keys(tmp_path):
             out = await app.commands.dispatch(app, "/details")
             assert "on" in out
             assert "details on" in await app.commands.dispatch(app, "/status")
-            # narrow terminal: chat still fits, nothing clipped by a panel
+            # narrow terminal: panel auto-hides, chat fits full-width
             await pilot.resize_terminal(70, 24)
             await pilot.pause()
+            assert app.status_panel.display is False
             assert app.chat_view.size.width >= 60
+            # /sidebar toggles it back manually
+            out = await app.commands.dispatch(app, "/sidebar")
+            assert "sidebar:" in out
 
     asyncio.run(scenario())
 

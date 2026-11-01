@@ -27,7 +27,7 @@ _HELP_GROUPS: list[tuple[str, list[str]]] = [
     ("work", ["plan", "approve", "reject", "run", "visual", "learn"]),
     ("plugins", ["ponytail", "ponytail-review", "ponytail-audit", "ponytail-debt", "ponytail-help", "aftermath", "aftermath-status", "aftermath-revert", "aftermath-log", "aftermath-audit"]),
     ("git & history", ["checkpoint", "restore", "checkpoints", "audit", "stats"]),
-    ("view & setup", ["status", "models", "skills", "details", "thinking", "themes", "connect", "editor", "init", "update", "version", "help", "exit"]),
+    ("view & setup", ["status", "sidebar", "models", "skills", "details", "thinking", "themes", "connect", "editor", "init", "update", "version", "help", "exit"]),
 ]
 
 _KEYMAP = """## keys (ctrl+x leader)
@@ -481,8 +481,11 @@ def _load_json_commands(workspace: Path) -> list[PromptCommand]:
 
 def _load_prompt_commands(workspace) -> list[SlashCommand]:
     cmds: list[SlashCommand] = []
-    # 4 md dirs in precedence low→high
+    # md dirs in precedence low→high (bundled defaults are lowest: any
+    # user/workspace command with the same name overrides them)
+    bundled = Path(__file__).resolve().parents[1] / "bundled" / "commands"
     search_dirs = [
+        bundled,
         Path.home() / ".config" / "opencode" / "commands",
         Path.home() / ".sick" / "commands",
         Path(workspace) / ".opencode" / "commands" if workspace else None,
@@ -555,7 +558,7 @@ class VersionCommand(SlashCommand):
 
             v = _v("sick-agent")
         except Exception:
-            v = "0.5.1"
+            v = "0.5.2"
         return f"sick {v}"
 
 
@@ -834,6 +837,15 @@ class AftermathAuditCommand(SlashCommand):
         return "aftermath audit started"
 
 
+class SidebarCommand(SlashCommand):
+    name = "sidebar"
+    hint = "toggle the right status panel"
+
+    async def run(self, app: SickApp, args: str) -> str | None:
+        shown = app.toggle_sidebar()
+        return f"sidebar: {'shown' if shown else 'hidden'}"
+
+
 class StatusCommand(SlashCommand):
     name = "status"
     hint = "full session status (workspace, model, SDLC, plugins)"
@@ -1001,7 +1013,7 @@ class UpdateCommand(SlashCommand):
 
             v = _v("sick-agent")
         except Exception:
-            v = "0.5.1"
+            v = "0.5.2"
         return (
             f"sick {v}\n"
             "update (checkout): `git pull && ./install.sh`\n"
@@ -1021,7 +1033,7 @@ class SlashCommandRegistry:
             AuditCommand(), StatsCommand(), PlanCommand(), ApproveCommand(), RejectCommand(), RunCommand(),
             CheckpointCommand(), RestoreCommand(), CheckpointsCommand(), VersionCommand(),
             LearnCommand(), UndoCommand(), RedoCommand(), CompactCommand(), ExportCommand(),
-            InitCommand(), SessionsCommand(), StatusCommand(), SkillsCommand(), DetailsCommand(), ThinkingCommand(),
+            InitCommand(), SessionsCommand(), SidebarCommand(), StatusCommand(), SkillsCommand(), DetailsCommand(), ThinkingCommand(),
             EditorCommand(), ConnectCommand(), ThemesCommand(), UpdateCommand(), PonytailCommand(), PonytailReviewCommand(), PonytailAuditCommand(), PonytailDebtCommand(), PonytailHelpCommand(), AftermathCommand(), AftermathStatusCommand(), AftermathRevertCommand(), AftermathLogCommand(), AftermathAuditCommand(),
         ):
             self.commands[cmd.name] = cmd
